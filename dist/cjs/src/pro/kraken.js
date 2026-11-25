@@ -808,7 +808,7 @@ class kraken extends kraken$1["default"] {
         const symbolsNormalized = this.marketSymbols(symbols, undefined, false, true, false);
         const unsubMessageHashes = [];
         for (let i = 0; i < symbolsNormalized.length; i++) {
-            unsubMessageHashes.push('unsubscribe:' + this.getMessageHash('trade', undefined, symbolsNormalized[i]));
+            unsubMessageHashes.push('unsubscribe:' + this.getMessageHash('trade', undefined, this.symbol(symbolsNormalized[i])));
         }
         const request = {
             'method': 'unsubscribe',
@@ -1382,8 +1382,8 @@ class kraken extends kraken$1["default"] {
             symbol = this.safeString(market, 'symbol');
         }
         let fee = undefined;
-        if ('fees' in trade) {
-            const fees = this.safeList(trade, 'fees', []);
+        const fees = this.safeList(trade, 'fees');
+        if (fees !== undefined) {
             const firstFee = this.safeDict(fees, 0, {});
             fee = {
                 'cost': this.safeNumber(firstFee, 'qty'),
@@ -1655,7 +1655,8 @@ class kraken extends kraken$1["default"] {
             this.balance = {};
         }
         this.balance[type] = this.safeDict(this.balance, type, {});
-        this.balance[type]['info'] = message;
+        const balance = this.safeDict(this.balance, type, {});
+        balance['info'] = message;
         const data = this.safeList(message, 'data', []);
         for (let i = 0; i < data.length; i++) {
             const currencyId = this.safeString(data[i], 'asset');
@@ -1663,9 +1664,9 @@ class kraken extends kraken$1["default"] {
             const account = this.account();
             const eq = this.safeString(data[i], 'balance');
             account['total'] = eq;
-            this.balance[type][code] = account;
+            balance[code] = account;
         }
-        this.balance[type] = this.safeBalance(this.balance[type]);
+        this.balance[type] = this.safeBalance(balance);
         const channel = this.safeString(message, 'channel');
         client.resolve(this.balance[type], channel);
     }

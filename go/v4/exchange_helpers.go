@@ -1160,6 +1160,11 @@ func InOp(dict any, key any) bool {
 		if ok {
 			return true
 		}
+	case map[string]*WSClient:
+		_, ok := v[key.(string)]
+		if ok {
+			return true
+		}
 	case OrderBookInterface:
 		// WsOrderBook is a typed struct, not a map - without this case every key-presence
 		// check on ws orderbooks is false and shared structure tests fail with
@@ -1531,6 +1536,24 @@ func Int64Arg(v any) int64 {
 		}
 	}
 	panic(ArgumentsRequired(fmt.Sprintf("expected an integer argument, got %T: %v", v, v)))
+}
+
+// Float64Arg converts a dynamically passed required number argument; nil or any other type
+// panics (ArgumentsRequired) instead of coercing
+func Float64Arg(v any) float64 {
+	switch value := derefScalar(v).(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int32:
+		return float64(value)
+	case int64:
+		return float64(value)
+	}
+	panic(ArgumentsRequired(fmt.Sprintf("expected a number argument, got %T: %v", v, v)))
 }
 
 func ToString(v any) string {
@@ -2455,13 +2478,13 @@ func Slice(str2 any, idx1 any, idx2 any) string {
 
 type Task func() any
 
-func PromiseAll(tasksInterface any) <-chan AsyncResult[any] {
+func PromiseAll(tasksInterface any) <-chan AsyncResult[[]any] {
 	return promiseAll(tasksInterface)
 }
 
 // promiseAll awaits every task; the first failing task by index fails the whole call.
-func promiseAll(tasksInterface any) <-chan AsyncResult[any] {
-	ch := make(chan AsyncResult[any])
+func promiseAll(tasksInterface any) <-chan AsyncResult[[]any] {
+	ch := make(chan AsyncResult[[]any])
 
 	go func() {
 		defer close(ch)
@@ -2469,7 +2492,7 @@ func promiseAll(tasksInterface any) <-chan AsyncResult[any] {
 
 		tasks, ok := tasksInterface.([]any)
 		if !ok {
-			ch <- AsyncResult[any]{} // not a slice of tasks: nil, as before
+			ch <- AsyncResult[[]any]{} // not a slice of tasks: nil, as before
 			return
 		}
 
@@ -2493,11 +2516,11 @@ func promiseAll(tasksInterface any) <-chan AsyncResult[any] {
 		wg.Wait()
 		for _, err := range failures {
 			if err != nil {
-				ch <- AsyncResult[any]{Err: err}
+				ch <- AsyncResult[[]any]{Err: err}
 				return
 			}
 		}
-		ch <- AsyncResult[any]{Value: results}
+		ch <- AsyncResult[[]any]{Value: results}
 	}()
 
 	return ch
@@ -3098,6 +3121,16 @@ func CallInternalMethod(methods map[string]any, itf any, name2 string, args ...a
 					arg = args[k]
 				}
 				in = append(in, reflect.ValueOf(Int64Arg(arg)).Convert(paramType))
+			} else if paramType.Kind() == reflect.Float64 && k < len(args) && args[k] != nil {
+				// a required float parameter: an int literal or a numeric string arrives boxed
+				in = append(in, reflect.ValueOf(ToFloat64(args[k])).Convert(paramType))
+			} else if paramType.Kind() == reflect.Float64 {
+				// a required number parameter: a missing or nil argument panics
+				var arg any = nil
+				if k < len(args) {
+					arg = args[k]
+				}
+				in = append(in, reflect.ValueOf(Float64Arg(arg)).Convert(paramType))
 			} else if k < len(args) && args[k] != nil {
 				argValue := reflect.ValueOf(args[k])
 				if paramType.Kind() == reflect.Slice && argValue.Kind() == reflect.Slice && argValue.Type() != paramType && argValue.Type().Elem().Kind() == reflect.Interface {
@@ -3238,6 +3271,12 @@ func (r AsyncResult[T]) Failure() error {
 // Typed returns the carried value.
 func (r AsyncResult[T]) Typed() T {
 	return r.Value
+}
+
+// MapPair is the async result of a (value, params) pair method: V the value, P the params.
+type MapPair[T any] struct {
+	V T
+	P map[string]any
 }
 
 // EndpointResult carries one implicit-API response: Raw is exactly what Fetch2Async

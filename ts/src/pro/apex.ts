@@ -4,7 +4,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import apexRest from '../apex.js';
 import { ArrayCache, ArrayCacheBySymbolById, ArrayCacheBySymbolBySide, ArrayCacheByTimestamp } from '../base/ws/Cache.js';
-import type { Bool, Dict, Int, Market, NullableDict, OHLCV, Order, OrderBook, Position, Str, Strings, Ticker, Tickers, Trade } from '../base/types.js';
+import type { Dict, Int, Market, NullableDict, OHLCV, Order, OrderBook, Position, Str, Strings, Ticker, Tickers, Trade } from '../base/types.js';
 import Client from '../base/ws/Client.js';
 import { ArgumentsRequired, AuthenticationError, ExchangeError, NetworkError } from '../base/errors.js';
 import type { WsOrderBook } from '../base/ws/OrderBook.js';
@@ -172,7 +172,7 @@ export default class apex extends apexRest {
         const id = this.safeStringN (trade, [ 'i', 'id', 'v' ]);
         const marketId = this.safeString2 (trade, 's', 'symbol');
         const marketResolved: Market = this.safeMarket (marketId, market, undefined);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString (marketResolved, 'symbol');
         const timestamp = this.safeIntegerN (trade, [ 't', 'T', 'createdAt' ]);
         const side = this.safeStringLower2 (trade, 'S', 'side');
         const price = this.safeString2 (trade, 'p', 'price');
@@ -252,7 +252,8 @@ export default class apex extends apexRest {
         const client = this.client (url);
         const newTopics: string[] = [];
         for (let i = 0; i < topics.length; i++) {
-            if (!(messageHashes[i] in client.subscriptions)) {
+            const messageHash = this.safeString (messageHashes, i, '');
+            if (!(messageHash in client.subscriptions)) {
                 newTopics.push (topics[i]);
             }
         }
@@ -450,8 +451,8 @@ export default class apex extends apexRest {
         const topic = this.safeString (message, 'topic', '');
         const updateType = this.safeString (message, 'type', '');
         const data = this.safeDict (message, 'data', {});
-        let symbol: Str = undefined;
         let parsed = this.parseTicker (data);
+        let symbol = this.safeString (parsed, 'symbol');
         if ((updateType === 'snapshot')) {
             parsed = this.parseTicker (data);
             symbol = this.safeString (parsed, 'symbol');
@@ -465,6 +466,8 @@ export default class apex extends apexRest {
             const rawTicker = this.safeDict (ticker, 'info', {});
             const merged = this.extend (rawTicker, data);
             parsed = this.parseTicker (merged);
+        } else {
+            symbol = undefined;
         }
         const timestamp = this.safeIntegerProduct (message, 'ts', 0.001);
         parsed['timestamp'] = timestamp;
@@ -489,7 +492,8 @@ export default class apex extends apexRest {
     override async watchOHLCV (symbol: string, timeframe: string = '1m', since: Int = undefined, limit: Int = undefined, params: Dict = {}): Promise<OHLCV[]> {
         params['callerMethodName'] = 'watchOHLCV';
         const result = await this.watchOHLCVForSymbols ([ [ symbol, timeframe ] ], since, limit, params);
-        return result[symbol][timeframe];
+        const bySymbol: Dict = result[symbol];
+        return bySymbol[timeframe];
     }
 
     /**
@@ -740,9 +744,8 @@ export default class apex extends apexRest {
         const trades = this.myTrades;
         const symbols: Dict = {};
         for (let i = 0; i < lists.length; i++) {
-            const rawTrade = this.safeDict (lists, i, {});
-            const parsed = this.parseWsTrade (rawTrade);
-            const symbol = parsed['symbol'];
+            const parsed = this.parseWsTrade (this.safeDict (lists, i, {}));
+            const symbol = this.safeString (parsed, 'symbol');
             symbols[symbol as string] = true;
             trades.append (parsed);
         }
@@ -795,7 +798,7 @@ export default class apex extends apexRest {
         const symbols: Dict = {};
         for (let i = 0; i < lists.length; i++) {
             const parsed = this.parseOrder (this.safeDict (lists, i, {}));
-            const symbol = parsed['symbol'];
+            const symbol = this.safeString (parsed, 'symbol');
             symbols[symbol as string] = true;
             orders.append (parsed);
         }
@@ -871,8 +874,7 @@ export default class apex extends apexRest {
         const cache = this.positions;
         const newPositions: Position[] = [];
         for (let i = 0; i < lists.length; i++) {
-            const rawPosition = this.safeDict (lists, i, {});
-            const position = this.parsePosition (rawPosition);
+            const position = this.parsePosition (this.safeDict (lists, i, {}));
             const side = this.safeString (position, 'side');
             // hacky solution to handle closing positions
             // without crashing, we should handle this properly later
@@ -935,7 +937,7 @@ export default class apex extends apexRest {
         return await future;
     }
 
-    handleErrorMessage (client: Client, message: Dict): Bool {
+    handleErrorMessage (client: Client, message: Dict): boolean {
         //
         //   {
         //       "success": false,

@@ -619,7 +619,7 @@ export default class bigone extends Exchange {
         const promises = [ this.publicGetAssetPairs (params), this.contractPublicGetSymbols (params) ];
         const promisesResult = await Promise.all (promises);
         const response = this.safeDict (promisesResult, 0);
-        const contractResponse = this.safeValue (promisesResult, 1);
+        const contractMarkets: Dict[] = this.safeList (promisesResult, 1, []);
         //
         //     {
         //         "code":0,
@@ -736,7 +736,6 @@ export default class bigone extends Exchange {
                 'info': market,
             }));
         }
-        const contractMarkets: Dict[] = this.toArray (contractResponse);
         for (let i = 0; i < contractMarkets.length; i++) {
             const market = contractMarkets[i];
             const baseId = this.safeString (market, 'baseCurrency');
@@ -2424,7 +2423,7 @@ export default class bigone extends Exchange {
         return this.parseTransaction (data, currency);
     }
 
-    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str) {
+    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool {
         if (response === undefined) {
             return undefined; // fallback to default error handler
         }

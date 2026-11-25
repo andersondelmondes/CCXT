@@ -493,7 +493,7 @@ class btcturk(Exchange, ImplicitAPI):
         #
         marketId = self.safe_string(ticker, 'pair')
         marketResolved = self.safe_market(marketId, market)
-        symbol = marketResolved['symbol']
+        symbol = self.safe_string(marketResolved, 'symbol')
         timestamp = self.safe_integer(ticker, 'timestamp')
         last = self.safe_string(ticker, 'last')
         open = self.safe_string(ticker, 'open')
@@ -725,7 +725,7 @@ class btcturk(Exchange, ImplicitAPI):
                 raise BadRequest(self.id + ' fetchOHLCV () does not accept a limit parameter when timeframe == "1y"')
             seconds = self.parse_timeframe(timeframe)
             limitCount = 100 if (limit is None) else min(limit, 11000)
-            limitSeconds = self.parse_to_int(seconds * (limitCount - 1))
+            limitSeconds = seconds * (limitCount - 1)
             if since is not None:
                 sinceSeconds = self.parse_to_int(since / 1000)
                 to = sinceSeconds + limitSeconds
@@ -1081,7 +1081,7 @@ class btcturk(Exchange, ImplicitAPI):
             }
         return {'url': url, 'method': method, 'body': requestBody, 'headers': privateHeaders}
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         errorCode = self.safe_string(response, 'code', '0')
         message = self.safe_string(response, 'message')
         feedback = self.id + ' ' + body

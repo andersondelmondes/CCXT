@@ -666,7 +666,7 @@ public partial class lbank : Exchange
         List<object> result = new List<object>() {};
         for (int i = 0; i < data.Count; i++)
         {
-            object market = data[i];
+            IDictionary<string, object> market = ((IDictionary<string, object>)data[i]);
             string? marketId = this.safeString(market, "symbol");
             List<object> parts = marketId.Split(new [] {"_"}, StringSplitOptions.None).ToList<object>();
             string? baseId = ((string)(parts != null && 0 < parts.Count ? parts[0] : null));
@@ -770,7 +770,7 @@ public partial class lbank : Exchange
         List<object> result = new List<object>() {};
         for (int i = 0; i < data.Count; i++)
         {
-            object market = data[i];
+            IDictionary<string, object> market = ((IDictionary<string, object>)data[i]);
             string? marketId = this.safeString(market, "symbol");
             string? baseId = this.safeString(market, "baseCurrency");
             string? settleId = this.safeString(market, "clearCurrency");
@@ -835,7 +835,7 @@ public partial class lbank : Exchange
         return ccxt.BaseExchange.ToMarketInterfaceList(result);
     }
 
-    public override ccxt.Ticker parseTicker(object ticker, object market = null)
+    public override ccxt.Ticker parseTicker(IDictionary<string, object> ticker, IDictionary<string, object> market = null)
     {
         //
         // spot: fetchTicker, fetchTickers
@@ -877,7 +877,7 @@ public partial class lbank : Exchange
         string? symbol = this.safeSymbol(marketId, market);
         IDictionary<string, object> tickerData = this.safeDict(ticker, "ticker", new Dictionary<string, object>() {});
         Dictionary<string, object> marketResolved = this.safeMarket(marketId, market);
-        object data = (this.safeBool(marketResolved, "contract", false) == true) ? ticker : tickerData;
+        IDictionary<string, object> data = (this.safeBool(marketResolved, "contract", false) == true) ? ticker : tickerData;
         return this.safeTicker(new Dictionary<string, object>() {
             { "symbol", symbol },
             { "timestamp", timestamp },
@@ -919,9 +919,10 @@ public partial class lbank : Exchange
             await this.loadMarkets();
         }
         Dictionary<string, object> market = this.market(symbol);
+        string? marketSymbol = this.safeString(market, "symbol", "");
         if ((this.safeBool(market, "swap", false) == true))
         {
-            Dictionary<string, object> responseForSwap = ccxt.BaseExchange.FromTickers(await this.FetchTickers(new List<object>() {(market.ContainsKey("symbol") ? market["symbol"] : null)}, parameters));
+            Dictionary<string, object> responseForSwap = ccxt.BaseExchange.FromTickers(await this.FetchTickers(new List<object>() {marketSymbol}, parameters));
             IDictionary<string, object> swapTicker = this.safeDict(responseForSwap, (market.ContainsKey("symbol") ? market["symbol"] : null));
             return ccxt.BaseExchange.ToTicker(swapTicker);
         }
@@ -973,7 +974,7 @@ public partial class lbank : Exchange
             await this.loadMarkets();
         }
         IDictionary<string, object> market = null;
-        IList<object> symbolsNormalized = this.marketSymbols(this.toArray(symbols));
+        IList<object> symbolsNormalized = this.marketSymbols(symbols);
         if ((symbolsNormalized != null))
         {
             int symbolsLength = (symbolsNormalized?.Count ?? 0);
@@ -1319,7 +1320,7 @@ public partial class lbank : Exchange
         return this.parseTrades(trades, market, since, limit);
     }
 
-    public override IList<object> parseOHLCV(object ohlcv, object market = null)
+    public override IList<object> parseOHLCV(object ohlcv, IDictionary<string, object> market = null)
     {
         //
         //   [
@@ -1401,7 +1402,7 @@ public partial class lbank : Exchange
         return ccxt.BaseExchange.ToOHLCVList(this.parseOHLCVs(ohlcvs, market,timeframeVar, sinceResolved, limitResolved));
     }
 
-    public override Dictionary<string, object> parseBalance(object response)
+    public override Dictionary<string, object> parseBalance(IDictionary<string, object> response)
     {
         //
         // spotPrivatePostUserInfo
@@ -1527,29 +1528,10 @@ public partial class lbank : Exchange
             }
             return this.safeBalance(result);
         }
-        // from spotPrivatePostSupplementUserInfo
-        bool isArray = ((data is IList<object>) || (data.GetType().IsGenericType && data.GetType().GetGenericTypeDefinition().IsAssignableFrom(typeof(List<>))));
-        if (isArray)
-        {
-            for (int i = 0; i < data.Count; i++)
-            {
-                IDictionary<string, object> item = this.safeDict(data, i);
-                string? currencyId = this.safeString(item, "coin");
-                string? codeInner = this.safeCurrencyCode(currencyId);
-                Dictionary<string, object> account = this.account();
-                account["free"] = this.safeString(item, "usableAmt");
-                account["used"] = this.safeString(item, "freezeAmt");
-                if ((codeInner != null))
-                {
-                    result[(string)codeInner] = account;
-                }
-            }
-            return this.safeBalance(result);
-        }
         return this.safeBalance(result);
     }
 
-    public override Dictionary<string, object> parseFundingRate(object ticker, IDictionary<string, object> market = null)
+    public override Dictionary<string, object> parseFundingRate(IDictionary<string, object> ticker, IDictionary<string, object> market = null)
     {
         // {
         //     "symbol": "BTCUSDT",
@@ -1616,7 +1598,8 @@ public partial class lbank : Exchange
             await this.loadMarkets();
         }
         Dictionary<string, object> market = this.market(symbol);
-        Dictionary<string, object> responseForSwap = ccxt.BaseExchange.FromFundingRates(await this.FetchFundingRates(new List<object>() {(market.ContainsKey("symbol") ? market["symbol"] : null)}, parameters));
+        string? marketSymbol = this.safeString(market, "symbol", "");
+        Dictionary<string, object> responseForSwap = ccxt.BaseExchange.FromFundingRates(await this.FetchFundingRates(new List<object>() {marketSymbol}, parameters));
         IDictionary<string, object> fundingRate = this.safeDict(responseForSwap, (market.ContainsKey("symbol") ? market["symbol"] : null));
         return ccxt.BaseExchange.ToFundingRate(fundingRate);
     }
@@ -1739,7 +1722,7 @@ public partial class lbank : Exchange
         return ccxt.BaseExchange.ToBalances(balanceResult);
     }
 
-    public virtual Dictionary<string, object> parseTradingFee(object fee, IDictionary<string, object>? market = null)
+    public virtual Dictionary<string, object> parseTradingFee(IDictionary<string, object> fee, IDictionary<string, object>? market = null)
     {
         //
         //      {
@@ -1799,8 +1782,8 @@ public partial class lbank : Exchange
         Dictionary<string, object> result = new Dictionary<string, object>() {};
         for (int i = 0; i < fees.Count; i++)
         {
-            Dictionary<string, object> fee = this.parseTradingFee(fees[i]);
-            string? symbol = ((string)(fee != null && fee.ContainsKey("symbol") ? fee["symbol"] : null));
+            Dictionary<string, object> fee = this.parseTradingFee(this.extend(new Dictionary<string, object>() {}, fees[i]));
+            string? symbol = this.safeString(fee, "symbol");
             if ((symbol != null))
             {
                 result[(string)symbol] = fee;
@@ -1970,7 +1953,7 @@ public partial class lbank : Exchange
         return this.safeString(statuses, status, status);
     }
 
-    public override ccxt.Order parseOrder(object order, IDictionary<string, object> market = null)
+    public override ccxt.Order parseOrder(IDictionary<string, object> order, IDictionary<string, object> market = null)
     {
         //
         // fetchOrderSupplement (private)
@@ -2582,7 +2565,7 @@ public partial class lbank : Exchange
             { "assetCode", (currency.ContainsKey("id") ? currency["id"] : null) },
         };
         string? network = this.getNetworkCodeForCurrency(code, parameters);
-        IDictionary<string, object> paramsOmitted = ((IDictionary<string, object>)(((network != null)) ? this.omit(parameters, "network") : parameters));
+        IDictionary<string, object> paramsOmitted = ((network != null)) ? this.omit(parameters, "network") : parameters;
         if ((network != null))
         {
             request["netWork"] = network; // ... yes, really lol
@@ -2626,7 +2609,7 @@ public partial class lbank : Exchange
             network = this.safeString(this.networkAliases, network, network);
         }
         network = this.safeString(networks, network, network);
-        IDictionary<string, object> paramsOmitted = ((IDictionary<string, object>)(((network != null)) ? this.omit(parameters, "network") : parameters));
+        IDictionary<string, object> paramsOmitted = ((network != null)) ? this.omit(parameters, "network") : parameters;
         if ((network != null))
         {
             request["networkName"] = network;
@@ -2736,7 +2719,7 @@ public partial class lbank : Exchange
         return this.safeString(this.safeDict(statuses, type, new Dictionary<string, object>() {}), status, status);
     }
 
-    public override Dictionary<string, object> parseTransaction(object transaction, IDictionary<string, object> currency = null)
+    public override Dictionary<string, object> parseTransaction(IDictionary<string, object> transaction, IDictionary<string, object> currency = null)
     {
         //
         // fetchDeposits (private)
@@ -3312,7 +3295,7 @@ public partial class lbank : Exchange
         return result;
     }
 
-    public override object parseDepositWithdrawFee(object fee, Dictionary<string, object> currency = null)
+    public override Dictionary<string, object> parseDepositWithdrawFee(object fee, Dictionary<string, object> currency = null)
     {
         //
         // * only used for fetchPrivateDepositWithdrawFees
@@ -3431,7 +3414,7 @@ public partial class lbank : Exchange
                 { "signature_method", finalSig },
                 { "timestamp", timestamp },
             }, signedQuery)));
-            string? encoded = this.encode(auth);
+            string? encoded = auth;
             string uppercaseHash = ((string)this.hash(encoded, md5)).ToUpper();
             string sign = "";
             if (signatureMethod == "RSA")
@@ -3443,7 +3426,7 @@ public partial class lbank : Exchange
                     string? cachedPem = this.safeString(this.options, "pem");
                     if ((cachedPem == null))
                     {
-                        pem = this.convertSecretToPem(this.encode(this.secret));
+                        pem = this.convertSecretToPem(this.secret);
                         this.options["pem"] = pem;
                     } else
                     {
@@ -3451,12 +3434,12 @@ public partial class lbank : Exchange
                     }
                 } else
                 {
-                    pem = this.convertSecretToPem(this.encode(this.secret));
+                    pem = this.convertSecretToPem(this.secret);
                 }
                 sign = rsa(uppercaseHash, pem, sha256);
             } else if (signatureMethod == "HmacSHA256")
             {
-                sign = this.hmac(this.encode(uppercaseHash), this.encode(this.secret), sha256);
+                sign = this.hmac(uppercaseHash, this.secret, sha256);
             }
             signedQuery["sign"] = sign;
             string bodySigned = this.urlencode(this.keysort(signedQuery));
@@ -3486,16 +3469,16 @@ public partial class lbank : Exchange
         int secretLength = getArrayLength(secret);
         Int64? fullLines = this.parseToInt(((double)secretLength / 64));
         string pem = "-----BEGIN PRIVATE KEY-----\n"; // eslint-disable-line
-        for (int i = 0; (i <= fullLines); i++)
+        for (int i = 0; i <= fullLines; i++)
         {
             Int64 start = (i * 64L);
             Int64 end = this.sum(start, 64);
-            pem = pem + (slice(this.secret, start, end) + "\n"); // eslint-disable-line
+            pem = pem + (((this.secret == null) ? null : this.secret[(int)(start < 0 ? this.secret.Length + start : start)..Math.Min((int)(end < 0 ? this.secret.Length + end : end), this.secret.Length)]) + "\n"); // eslint-disable-line
         }
         return (pem + "-----END PRIVATE KEY-----");
     }
 
-    public override object handleErrors(Int64? code, string reason, string url, string method, object headers, object body, object response, Dictionary<string, object> requestHeaders, object requestBody)
+    public override bool? handleErrors(Int64? code, string reason, string url, string method, IDictionary<string, object> headers, string body, object response, Dictionary<string, object> requestHeaders, string requestBody)
     {
         if ((response == null))
         {
@@ -3610,6 +3593,6 @@ public partial class lbank : Exchange
             }, errorCode, typeof(ExchangeError));
             throwDynamicException(ErrorClass, message);return null;
         }
-        return null;
+        return ((bool?)((object)(null)));
     }
 }

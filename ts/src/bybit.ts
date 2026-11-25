@@ -1484,9 +1484,7 @@ export default class bybit extends Exchange {
         const paginationCursor = this.safeString2 (result, 'nextPageCursor', 'cursor');
         const dataLength = data.length;
         if ((paginationCursor !== undefined) && (dataLength > 0)) {
-            const first = data[0];
-            first['nextPageCursor'] = paginationCursor;
-            data[0] = first;
+            data[0] = this.extend (data[0], { 'nextPageCursor': paginationCursor });
         }
         return data;
     }
@@ -1576,8 +1574,10 @@ export default class bybit extends Exchange {
             //
             const result = this.safeDict (response, 'result', {});
             const accountResult = this.safeDict (accountInfo, 'result', {});
-            this.options['enableUnifiedMargin'] = this.safeInteger (result, 'unified') === 1;
-            this.options['enableUnifiedAccount'] = this.safeInteger (result, 'uta') === 1;
+            const unified = this.safeInteger (result, 'unified');
+            const uta = this.safeInteger (result, 'uta');
+            this.options['enableUnifiedMargin'] = unified === 1;
+            this.options['enableUnifiedAccount'] = uta === 1;
             this.options['unifiedMarginStatus'] = this.safeInteger (accountResult, 'unifiedMarginStatus', 6); // default to uta 2.0 pro if not found
         }
         return [ this.options['enableUnifiedMargin'], this.options['enableUnifiedAccount'] ];
@@ -1597,7 +1597,7 @@ export default class bybit extends Exchange {
 
     override createExpiredOptionMarket (symbol: string): MarketInterface {
         // support expired option contracts
-        let quote: Str = undefined;
+        let quote = 'USDC';
         const optionParts = symbol.split ('-');
         const symbolBase = symbol.split ('/');
         let expiry: Str = undefined;
@@ -1611,20 +1611,16 @@ export default class bybit extends Exchange {
                 throw new ExchangeError (this.id + ' createExpiredOptionMarket() missing symbolQuoteAndSettle');
             }
             const splitQuote = symbolQuoteAndSettle.split (':');
-            const quoteAndSettle = this.safeString (splitQuote, 0);
-            quote = quoteAndSettle;
+            quote = this.safeString (splitQuote, 0, '');
         } else {
             expiry = this.convertMarketIdExpireDate (this.safeString (optionParts, 1));
             if (symbol.endsWith ('-USDT')) {
                 quote = 'USDT';
-            } else {
-                quote = 'USDC';
             }
         }
-        const strike = this.safeString (optionParts, 2);
-        const optionType = this.safeString (optionParts, 3);
+        const strike: string = this.safeString (optionParts, 2, '');
+        const optionType: string = this.safeString (optionParts, 3, '');
         const datetime = this.convertExpireDate (expiry);
-        const timestamp = this.parse8601 (datetime);
         let amountPrecision: Num = undefined;
         let pricePrecision: Num = undefined;
         // hard coded amount and price precisions from fetchOptionMarkets
@@ -1660,7 +1656,7 @@ export default class bybit extends Exchange {
             'margin': false,
             'contract': true,
             'contractSize': this.parseNumber ('1'),
-            'expiry': timestamp,
+            'expiry': this.parse8601 (datetime),
             'expiryDatetime': datetime,
             'optionType': (optionType === 'C') ? 'call' : 'put',
             'strike': this.parseNumber (strike),
@@ -1960,7 +1956,7 @@ export default class bybit extends Exchange {
             types = this.safeList (this.options, 'fetchMarkets', defaultTypes);
         }
         for (let i = 0; i < types.length; i++) {
-            const marketType = types[i];
+            const marketType = this.safeString (types, i);
             if (marketType === 'spot') {
                 promisesUnresolved.push (this.fetchSpotMarkets (params));
             } else if (marketType === 'linear') {
@@ -1997,7 +1993,7 @@ export default class bybit extends Exchange {
         return result;
     }
 
-    async fetchSpotMarkets (params: any): Promise<Market[]> {
+    async fetchSpotMarkets (params: Dict = {}): Promise<Market[]> {
         const request: Dict = {
             'category': 'spot',
         };
@@ -2043,8 +2039,6 @@ export default class bybit extends Exchange {
         const responseResult = this.safeDict (response, 'result', {});
         const markets: Dict[] = this.safeList (responseResult, 'list', []);
         const result: List = [];
-        const takerFee = this.parseNumber ('0.001');
-        const makerFee = this.parseNumber ('0.001');
         for (let i = 0; i < markets.length; i++) {
             const market = markets[i];
             const id = this.safeString (market, 'symbol');
@@ -2062,7 +2056,6 @@ export default class bybit extends Exchange {
             const priceFilter = this.safeDict (market, 'priceFilter');
             const quotePrecision = this.safeNumber (lotSizeFilter, 'quotePrecision');
             const marginTrading = this.safeString (market, 'marginTrading', 'none');
-            const allowsMargin = marginTrading !== 'none';
             result.push (this.safeMarketStructure ({
                 'id': id,
                 'symbol': symbol,
@@ -2074,7 +2067,7 @@ export default class bybit extends Exchange {
                 'settleId': undefined,
                 'type': 'spot',
                 'spot': true,
-                'margin': allowsMargin,
+                'margin': (marginTrading !== 'none'),
                 'swap': false,
                 'future': false,
                 'option': false,
@@ -2082,8 +2075,8 @@ export default class bybit extends Exchange {
                 'contract': false,
                 'linear': undefined,
                 'inverse': undefined,
-                'taker': takerFee,
-                'maker': makerFee,
+                'taker': this.parseNumber ('0.001'),
+                'maker': this.parseNumber ('0.001'),
                 'contractSize': undefined,
                 'expiry': undefined,
                 'expiryDatetime': undefined,
@@ -2217,7 +2210,6 @@ export default class bybit extends Exchange {
             const inverseFutures = (contractType === 'InverseFutures');
             const linearFutures = (contractType === 'LinearFutures');
             const linearPerpetual = (contractType === 'LinearPerpetual');
-            const inversePerpetual = (contractType === 'InversePerpetual');
             const id = this.safeString (market, 'symbol');
             const baseId = this.safeString (market, 'baseCoin');
             const quoteId = this.safeString (market, 'quoteCoin');
@@ -2242,7 +2234,7 @@ export default class bybit extends Exchange {
             const priceFilter = this.safeDict (market, 'priceFilter', {});
             const leverage = this.safeDict (market, 'leverageFilter', {});
             const status = this.safeString (market, 'status');
-            const swap = linearPerpetual || inversePerpetual;
+            const swap = linearPerpetual || (contractType === 'InversePerpetual');
             const future = inverseFutures || linearFutures;
             let type: Str = undefined;
             if (swap) {
@@ -2264,6 +2256,13 @@ export default class bybit extends Exchange {
                 symbol = symbol + '-' + this.yymmdd (expiry);
             }
             const contractSize = inverse ? this.safeNumber2 (lotSizeFilter, 'minTradingQty', 'minOrderQty') : this.parseNumber ('1');
+            const costLimits: Dict = {
+                'min': undefined,
+                'max': undefined,
+            };
+            if (linear) {
+                costLimits['min'] = this.safeNumber (lotSizeFilter, 'minNotionalValue'); // https://bybit-exchange.github.io/docs/v5/market/instrument
+            }
             const parsedMarket = this.safeMarketStructure ({
                 'id': id,
                 'symbol': symbol,
@@ -2307,10 +2306,7 @@ export default class bybit extends Exchange {
                         'min': this.safeNumber (priceFilter, 'minPrice'),
                         'max': this.safeNumber (priceFilter, 'maxPrice'),
                     },
-                    'cost': {
-                        'min': linear ? this.safeNumber (lotSizeFilter, 'minNotionalValue') : undefined, // https://bybit-exchange.github.io/docs/v5/market/instrument
-                        'max': undefined,
-                    },
+                    'cost': costLimits,
                 },
                 'created': this.safeInteger (market, 'launchTime'),
                 'info': market,
@@ -3034,11 +3030,14 @@ export default class bybit extends Exchange {
         const request: Dict = {};
         const symbolsNormalized: Strings = this.marketSymbols (symbols);
         if (symbolsNormalized !== undefined) {
-            const symbolMarket = this.market (symbolsNormalized[0]);
-            market = symbolMarket;
-            const symbolsLength = symbolsNormalized.length;
-            if (symbolsLength === 1) {
-                request['symbol'] = symbolMarket['id'];
+            const normalizedLength = symbolsNormalized.length;
+            if (normalizedLength > 0) {
+                const symbolMarket = this.market (symbolsNormalized[0]);
+                market = symbolMarket;
+                const symbolsLength = symbolsNormalized.length;
+                if (symbolsLength === 1) {
+                    request['symbol'] = symbolMarket['id'];
+                }
             }
         }
         const [ marketType, paramsMarketType ] = this.handleMarketTypeAndParams ('fetchFundingRates', market, params);
@@ -3087,10 +3086,11 @@ export default class bybit extends Exchange {
         const data = this.safeDict (response, 'result', {});
         const tickerList: Dict[] = this.safeList (data, 'list', []);
         const timestamp = this.safeInteger (response, 'time');
+        const rows = [];
         for (let i = 0; i < tickerList.length; i++) {
-            tickerList[i]['timestamp'] = timestamp; // will be removed inside the parser
+            rows.push (this.extend (tickerList[i], { 'timestamp': timestamp })); // will be removed inside the parser
         }
-        return this.parseFundingRates (tickerList, symbolsNormalized);
+        return this.parseFundingRates (rows, symbolsNormalized);
     }
 
     /**
@@ -3127,7 +3127,7 @@ export default class bybit extends Exchange {
         };
         const market = this.market (symbol);
         const fundingTimeFrameMins = this.safeInteger (market['info'], 'fundingInterval');
-        const symbolValue: Str = market['symbol'];
+        const symbolValue: string = this.safeString (market, 'symbol', '');
         request['symbol'] = market['id'];
         const [ type, paramsValue ] = this.getBybitType ('fetchFundingRateHistory', market, paramsPaginate);
         if (type === 'spot' || type === 'option') {
@@ -3343,19 +3343,23 @@ export default class bybit extends Exchange {
         //
         const id = this.safeStringN (trade, [ 'execId', 'id', 'tradeId' ]);
         const marketId = this.safeString (trade, 'symbol');
-        let marketType: Str = 'spot';
+        let marketType: string = 'spot';
         if ('createType' in trade) {
             marketType = 'contract';
         }
         const category = this.safeString (trade, 'category');
         if (category !== undefined) {
-            marketType = (category === 'spot') ? 'spot' : 'contract';
+            if (category === 'spot') {
+                marketType = 'spot';
+            } else {
+                marketType = 'contract';
+            }
         }
         if (market !== undefined) {
-            marketType = this.safeString (market, 'type');
+            marketType = this.safeString (market, 'type', marketType);
         }
         const marketResolved: Market = this.safeMarket (marketId, market, undefined, marketType);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString (marketResolved, 'symbol');
         const amountString = this.safeStringN (trade, [ 'execQty', 'orderQty', 'size' ]);
         const priceString = this.safeStringN (trade, [ 'execPrice', 'orderPrice', 'price' ]);
         const costString = this.safeString (trade, 'execValue');
@@ -4072,7 +4076,7 @@ export default class bybit extends Exchange {
             marketType = isContract ? 'contract' : 'spot';
         }
         const marketResolved: Market = this.safeMarket (marketId, market, undefined, marketType);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString (marketResolved, 'symbol');
         const timestamp = this.safeInteger2 (order, 'createdTime', 'createdAt');
         const marketUnit = this.safeString (order, 'marketUnit'); // '' is filtered by safeString, do not force a default:
         // bybit's spot Market Buy qty is quote-denominated unless marketUnit is explicitly 'baseCoin',
@@ -4120,7 +4124,7 @@ export default class bybit extends Exchange {
         const triggerDirection = this.safeString (order, 'triggerDirection');
         const isAscending = (triggerDirection === '1');
         const isStopOrderType2 = (triggerPrice !== undefined) && reduceOnly;
-        if ((stopLossPrice === undefined) && (isStopOrderType2 === true)) {
+        if ((stopLossPrice === undefined) && isStopOrderType2) {
             // check if order is stop order type 2 - stopLossPrice
             if (isAscending && (side === 'buy')) {
                 // stopLoss order against short position
@@ -4131,7 +4135,7 @@ export default class bybit extends Exchange {
                 stopLossPrice = triggerPrice;
             }
         }
-        if ((takeProfitPrice === undefined) && (isStopOrderType2 === true)) {
+        if ((takeProfitPrice === undefined) && isStopOrderType2) {
             // check if order is stop order type 2 - takeProfitPrice
             if (isAscending && (side === 'sell')) {
                 // takeprofit order against a long position
@@ -4309,7 +4313,7 @@ export default class bybit extends Exchange {
             throw new ArgumentsRequired (this.id + ' requires a side argument');
         }
         const market = this.market (symbol);
-        const symbolValue: Str = market['symbol'];
+        const symbolValue: string = this.safeString (market, 'symbol', '');
         const lowerCaseType = type.toLowerCase ();
         const request: Dict = {
             'symbol': market['id'],
@@ -4630,8 +4634,8 @@ export default class bybit extends Exchange {
             orderSymbols.push (marketId);
             const type = this.safeString (rawOrder, 'type');
             const side = this.safeString (rawOrder, 'side');
-            const amount = this.safeValue (rawOrder, 'amount');
-            const price = this.safeValue (rawOrder, 'price');
+            const amount = this.safeNumber (rawOrder, 'amount');
+            const price = this.safeNumber (rawOrder, 'price');
             const orderParams = this.safeDict (rawOrder, 'params', {});
             const orderRequest = this.createOrderRequest (marketId, type, side, amount, price, orderParams, isUta);
             delete orderRequest['category'];
@@ -4854,8 +4858,8 @@ export default class bybit extends Exchange {
             const id = this.safeString (rawOrder, 'id');
             const type = this.safeString (rawOrder, 'type');
             const side = this.safeString (rawOrder, 'side');
-            const amount = this.safeValue (rawOrder, 'amount');
-            const price = this.safeValue (rawOrder, 'price');
+            const amount = this.safeNumber (rawOrder, 'amount');
+            const price = this.safeNumber (rawOrder, 'price');
             const orderParams = this.safeDict (rawOrder, 'params', {});
             const orderRequest = this.editOrderRequest (id, symbol, type, side, amount, price, orderParams);
             delete orderRequest['category'];
@@ -5281,7 +5285,7 @@ export default class bybit extends Exchange {
         //
         const result = this.safeDict (response, 'result', {});
         const orders = this.safeList (result, 'list');
-        if (!Array.isArray (orders)) {
+        if (orders === undefined) {
             return [ this.safeOrder ({ 'info': response }) ];
         }
         return this.parseOrders (orders, market);
@@ -6085,7 +6089,7 @@ export default class bybit extends Exchange {
         const chains: Dict[] = this.safeList (result, 'chains', []);
         const coin = this.safeString (result, 'coin');
         const currencyFromResponse = this.currency (coin);
-        const parsed = this.parseDepositAddresses (chains, [ currencyFromResponse['code'] ], false, {
+        const parsed = this.parseDepositAddresses (chains, [ this.safeString (currencyFromResponse, 'code', '') ], false, {
             'currency': currencyFromResponse['code'],
         });
         return this.indexBy (parsed, 'network') as DepositAddresses;
@@ -6786,8 +6790,7 @@ export default class bybit extends Exchange {
         const result = this.safeDict (response, 'result', {});
         const positions = this.safeList2 (result, 'list', 'dataList', []);
         const timestamp = this.safeInteger (response, 'time');
-        const first = this.safeDict (positions, 0, {});
-        const position = this.parsePosition (first, market);
+        const position = this.parsePosition (this.safeDict (positions, 0, {}), market);
         position['timestamp'] = timestamp;
         position['datetime'] = this.iso8601 (timestamp);
         return position;
@@ -6897,12 +6900,16 @@ export default class bybit extends Exchange {
         const positions = this.addPaginationCursorToResult (response);
         const results: List = [];
         for (let i = 0; i < positions.length; i++) {
-            let rawPosition = positions[i];
+            const rawPosition = positions[i];
             if (('data' in rawPosition) && ('is_valid' in rawPosition)) {
                 // futures only
-                rawPosition = this.safeDict (rawPosition, 'data');
+                const futuresData: Dict = this.safeDict (rawPosition, 'data', {});
+                const futuresPosition = this.parsePosition (futuresData);
+                results.push (futuresPosition);
+            } else {
+                const parsedPosition = this.parsePosition (this.safeDict (positions, i, {}));
+                results.push (parsedPosition);
             }
-            results.push (this.parsePosition (rawPosition));
         }
         return this.filterByArrayPositions (results, 'symbol', symbolsNormalized);
     }
@@ -7194,7 +7201,7 @@ export default class bybit extends Exchange {
         }
         const market = this.market (symbol);
         const position = await this.fetchPosition (symbol, params);
-        return this.parseLeverage (position, market);
+        return this.parseLeverage (this.extend ({}, position), market);
     }
 
     override parseLeverage (leverage: Dict, market: Market = undefined): Leverage {
@@ -7275,16 +7282,18 @@ export default class bybit extends Exchange {
                 const leverage = this.safeString (paramsType, 'leverage');
                 let paramsOmitted = undefined;
                 if (leverage === undefined) {
-                    sellLeverage = this.safeString2 (paramsType, 'sell_leverage', 'sellLeverage');
-                    buyLeverage = this.safeString2 (paramsType, 'buy_leverage', 'buyLeverage');
-                    if (sellLeverage === undefined && buyLeverage === undefined) {
+                    const sellLeverageRaw = this.safeString2 (paramsType, 'sell_leverage', 'sellLeverage');
+                    const buyLeverageRaw = this.safeString2 (paramsType, 'buy_leverage', 'buyLeverage');
+                    if (sellLeverageRaw === undefined && buyLeverageRaw === undefined) {
                         throw new ArgumentsRequired (this.id + ' setMarginMode() requires a leverage parameter or sell_leverage and buy_leverage parameters');
                     }
-                    if (buyLeverage === undefined) {
-                        buyLeverage = sellLeverage;
+                    sellLeverage = sellLeverageRaw;
+                    buyLeverage = buyLeverageRaw;
+                    if (buyLeverageRaw === undefined) {
+                        buyLeverage = sellLeverageRaw;
                     }
-                    if (sellLeverage === undefined) {
-                        sellLeverage = buyLeverage;
+                    if (sellLeverageRaw === undefined) {
+                        sellLeverage = buyLeverageRaw;
                     }
                     paramsOmitted = this.omit (paramsType, [ 'buy_leverage', 'sell_leverage', 'sellLeverage', 'buyLeverage' ]);
                 } else {
@@ -7740,7 +7749,7 @@ export default class bybit extends Exchange {
         //
         const data = this.safeDict (response, 'result', {});
         const rows = this.safeList (data, 'loanAccountList', []);
-        const interest = this.parseBorrowInterests (rows);
+        const interest: BorrowInterest[] = this.parseBorrowInterests (rows);
         return this.filterByCurrencySinceLimit (interest, code, since, limit);
     }
 
@@ -7766,12 +7775,13 @@ export default class bybit extends Exchange {
         };
         const sinceResolved = (since === undefined) ? this.milliseconds () - 2592000000 : since; // last 30 days
         request['startTime'] = sinceResolved;
-        let endTime = this.safeInteger2 (params, 'until', 'endTime');
+        const endTime = this.safeInteger2 (params, 'until', 'endTime');
         const paramsOmitted: Dict = this.omit (params, [ 'until' ]);
         if (endTime === undefined) {
-            endTime = sinceResolved + 2592000000; // since + 30 days
+            request['endTime'] = sinceResolved + 2592000000; // since + 30 days
+        } else {
+            request['endTime'] = endTime;
         }
-        request['endTime'] = endTime;
         const response = await this.privateGetV5SpotMarginTradeInterestRateHistory (this.extend (request, paramsOmitted));
         //
         //   {
@@ -8160,9 +8170,9 @@ export default class bybit extends Exchange {
         //     }
         //
         const marketId = this.safeString (fee, 'symbol');
-        let defaultType: Str = 'contract';
+        let defaultType: string = 'contract';
         if (market !== undefined) {
-            defaultType = this.safeString (market, 'type');
+            defaultType = this.safeString (market, 'type', 'contract');
         }
         const symbol = this.safeSymbol (marketId, market, undefined, defaultType);
         return {
@@ -8254,11 +8264,12 @@ export default class bybit extends Exchange {
         //     }
         //
         const feeRates: Dict = this.safeDict (response, 'result', {});
-        const fees: List = this.safeList (feeRates, 'list', []);
+        const fees = this.safeList (feeRates, 'list', []);
         const result: Dict = {};
         for (let i = 0; i < fees.length; i++) {
-            const fee = this.parseTradingFee (fees[i]);
-            const symbol = fee['symbol'];
+            const feeRow = this.safeDict (fees, i, {});
+            const fee = this.parseTradingFee (feeRow);
+            const symbol = this.safeString (fee, 'symbol');
             if (symbol !== undefined) {
                 result[symbol] = fee;
             }
@@ -8301,6 +8312,7 @@ export default class bybit extends Exchange {
             },
             'networks': {},
         };
+        const networks: Dict = {};
         if (chainsLength !== 0) {
             for (let i = 0; i < chainsLength; i++) {
                 const chain = this.safeDict (chains, i);
@@ -8308,17 +8320,20 @@ export default class bybit extends Exchange {
                 const currencyCode = this.safeString (currency, 'code');
                 const networkCode = this.networkIdToCode (networkId, currencyCode);
                 if (networkCode !== undefined) {
-                    result['networks'][networkCode] = {
+                    networks[networkCode] = {
                         'deposit': { 'fee': undefined, 'percentage': undefined },
                         'withdraw': { 'fee': this.safeNumber (chain, 'withdrawFee'), 'percentage': false },
                     };
                 }
                 if (chainsLength === 1) {
-                    result['withdraw']['fee'] = this.safeNumber (chain, 'withdrawFee');
-                    result['withdraw']['percentage'] = false;
+                    result['withdraw'] = {
+                        'fee': this.safeNumber (chain, 'withdrawFee'),
+                        'percentage': false,
+                    };
                 }
             }
         }
+        result['networks'] = networks;
         return result;
     }
 
@@ -8558,7 +8573,8 @@ export default class bybit extends Exchange {
         //
         const result: List = [];
         for (let i = 0; i < settlements.length; i++) {
-            result.push (this.parseSettlement (settlements[i], market));
+            const settlementRow: Dict = this.extend ({}, settlements[i]);
+            result.push (this.parseSettlement (settlementRow, market));
         }
         return result;
     }
@@ -8685,7 +8701,7 @@ export default class bybit extends Exchange {
         const timestamp = this.safeInteger (response, 'time');
         const result = this.safeDict (response, 'result', {});
         const data: Dict[] = this.safeList (result, 'list', []);
-        const greeks = this.parseGreeks (data[0], market);
+        const greeks = this.parseGreeks (this.safeDict (data, 0, {}), market);
         return this.extend (greeks, {
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
@@ -8977,11 +8993,19 @@ export default class bybit extends Exchange {
         const lastIndex = total - 1;
         const last = this.safeDict (result, lastIndex, {});
         const cursorValue = this.safeString (first, 'nextPageCursor');
-        last['info'] = {
-            'nextPageCursor': cursorValue,
-        };
-        result[lastIndex] = last;
-        return this.toArray (result);
+        const lastRow: Dict = this.extend (last, {
+            'info': {
+                'nextPageCursor': cursorValue,
+            },
+        });
+        const rows: Dict[] = [];
+        for (let i = 0; i < lastIndex; i++) {
+            rows.push (this.safeDict (result, i, {}));
+        }
+        if (total > 0) {
+            rows.push (lastRow);
+        }
+        return this.toArray (rows);
     }
 
     /**
@@ -9040,7 +9064,7 @@ export default class bybit extends Exchange {
                 entry[j]['id'] = id;
             }
             const market = this.safeMarket (marketId, undefined, undefined, 'contract');
-            const symbol = market['symbol'];
+            const symbol = this.safeString (market, 'symbol', '');
             tiers[symbol] = this.parseMarketLeverageTiers (this.sortBy (entry, 'id'), market);
         }
         return tiers as LeverageTiers;
@@ -9061,24 +9085,23 @@ export default class bybit extends Exchange {
         //  ]
         //
         const tiers: List = [];
+        let minNotional: Num = this.parseNumber ('0');
         for (let i = 0; i < info.length; i++) {
             const tier = this.safeDict (info, i);
             const marketId = this.safeString (tier, 'symbol');
             const marketResolved = this.safeMarket (marketId, market, undefined, 'contract');
-            let minNotional: Num = this.parseNumber ('0');
-            if (i !== 0) {
-                minNotional = this.safeNumber (info[i - 1], 'riskLimitValue');
-            }
+            const tierMaxNotional = this.safeNumber (tier, 'riskLimitValue');
             tiers.push ({
                 'tier': this.safeInteger (tier, 'id'),
                 'symbol': this.safeSymbol (marketId, marketResolved),
                 'currency': marketResolved['settle'],
                 'minNotional': minNotional,
-                'maxNotional': this.safeNumber (tier, 'riskLimitValue'),
+                'maxNotional': tierMaxNotional,
                 'maintenanceMarginRate': this.safeNumber (tier, 'maintenanceMargin'),
                 'maxLeverage': this.safeNumber (tier, 'maxLeverage'),
                 'info': tier,
             });
+            minNotional = tierMaxNotional;
         }
         return tiers as LeverageTier[];
     }
@@ -9168,9 +9191,9 @@ export default class bybit extends Exchange {
         //
         const marketId = this.safeString (income, 'symbol');
         const marketResolved: Market = this.safeMarket (marketId, market, undefined, 'contract');
-        let code = 'USDT';
+        let code: string = 'USDT';
         if (this.safeBool (marketResolved, 'inverse', false)) {
-            code = marketResolved['quote'];
+            code = this.safeString (marketResolved, 'quote', 'USDT');
         }
         const timestamp = this.safeInteger (income, 'execTime');
         return {
@@ -10110,17 +10133,18 @@ export default class bybit extends Exchange {
         if (apiUrl === undefined) {
             throw new ExchangeError (this.id + ' sign() has no API URL for this endpoint');
         }
-        let url = this.implodeHostname (apiUrl) + '/' + path;
+        const baseUrl = this.implodeHostname (apiUrl) + '/' + path;
+        let url = baseUrl;
         if (apiName === 'public') {
             if (Object.keys (params).length > 0) {
                 url = this.implodeHostname (apiUrl) + '/' + path + '?' + this.rawencode (params);
             }
         } else if (apiName === 'private') {
             this.checkRequiredCredentials ();
-            const isOpenapi = url.indexOf ('openapi') >= 0;
-            const isV3UnifiedMargin = url.indexOf ('unified/v3') >= 0;
-            const isV3Contract = url.indexOf ('contract/v3') >= 0;
-            const isV5UnifiedAccount = url.indexOf ('v5') >= 0;
+            const isOpenapi = baseUrl.indexOf ('openapi') >= 0;
+            const isV3UnifiedMargin = baseUrl.indexOf ('unified/v3') >= 0;
+            const isV3Contract = baseUrl.indexOf ('contract/v3') >= 0;
+            const isV5UnifiedAccount = baseUrl.indexOf ('v5') >= 0;
             const timestamp = this.nonce ().toString ();
             if (isOpenapi) {
                 if (Object.keys (params).length > 0) {
@@ -10165,7 +10189,7 @@ export default class bybit extends Exchange {
                 } else {
                     signature = this.hmac (this.encode (authFull), this.encode (this.secret), sha256);
                 }
-                requestHeaders['X-BAPI-SIGN'] = signature;
+                requestHeaders = this.extend (requestHeaders, { 'X-BAPI-SIGN': signature });
             } else {
                 const query = this.extend (params, {
                     'api_key': this.apiKey,
@@ -10174,14 +10198,12 @@ export default class bybit extends Exchange {
                 });
                 const sortedQuery = this.keysort (query);
                 const auth = this.rawencode (sortedQuery, true);
-                let signature: Str = undefined;
+                let signature = this.hmac (this.encode (auth), this.encode (this.secret), sha256);
                 if (this.secret.indexOf ('PRIVATE KEY') > -1) {
                     signature = rsa (auth, this.secret, sha256);
-                } else {
-                    signature = this.hmac (this.encode (auth), this.encode (this.secret), sha256);
                 }
                 if (method === 'POST') {
-                    const isSpot = url.indexOf ('spot') >= 0;
+                    const isSpot = baseUrl.indexOf ('spot') >= 0;
                     const extendedQuery = this.extend (query, {
                         'sign': signature,
                     });
@@ -10197,8 +10219,7 @@ export default class bybit extends Exchange {
                         };
                     }
                 } else {
-                    url = this.implodeHostname (apiUrl) + '/' + path + '?' + this.rawencode (sortedQuery, true);
-                    url += '&sign=' + signature;
+                    url = baseUrl + '?' + this.rawencode (sortedQuery, true) + '&sign=' + signature;
                 }
             }
         }
@@ -10213,7 +10234,7 @@ export default class bybit extends Exchange {
         return { 'url': url, 'method': method, 'body': bodyResolved, 'headers': headersResolved };
     }
 
-    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str) {
+    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool {
         if (response === undefined) {
             return undefined; // fallback to default error handler
         }

@@ -1,5 +1,5 @@
 import Exchange from './abstract/lighter.js';
-import type { Dict, FundingRate, FundingRates, Int, int, Market, OHLCV, OrderBook, Strings, Ticker, Tickers, OrderType, OrderSide, Num, Order, Balances, Position, Str, TransferEntry, Currency, CurrencyInterface, Currencies, Transaction, Trade, Account, MarginModification, NullableDict, Status } from './base/types.js';
+import type { Dict, FundingRate, FundingRates, Int, int, Market, OHLCV, OrderBook, Strings, Ticker, Tickers, OrderType, OrderSide, Num, Order, Balances, Position, Str, Bool, TransferEntry, Currency, CurrencyInterface, Currencies, Transaction, Trade, Account, MarginModification, NullableDict, Status } from './base/types.js';
 /**
  * @class lighter
  * @augments Exchange
@@ -18,8 +18,8 @@ export default class lighter extends Exchange {
      * @returns {boolean} true if the signer was loaded, false otherwise
      */
     preLoadLighterLibrary(params?: Dict): Promise<boolean>;
-    handleApiKeyIndex(params: object, methodName1: string, optionName1: string, optionName2: string, defaultValue?: any): [Int, Dict];
-    handleAccountIndex(params: object, methodName1: string, optionName1: string, optionName2: string, defaultValue?: any): Promise<[Int, Dict]>;
+    handleApiKeyIndex(params: object, methodName1: string, optionName1: string, optionName2: string, defaultValue?: any): [int, Dict];
+    handleAccountIndex(params: object, methodName1: string, optionName1: string, optionName2: string, defaultValue?: any): Promise<[int, Dict]>;
     createSubAccount(name: string, params?: Dict): Promise<Dict>;
     createAuth(params?: Dict): Str;
     pow(n: string, m: string): Str;
@@ -457,5 +457,5 @@ export default class lighter extends Exchange {
         body: undefined;
         headers: NullableDict;
     };
-    handleErrors(code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): undefined;
+    handleErrors(code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool;
 }

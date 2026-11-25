@@ -5,7 +5,7 @@
 
 import ccxt.async_support
 from ccxt.async_support.base.ws.cache import ArrayCache, ArrayCacheBySymbolById, ArrayCacheByTimestamp
-from ccxt.base.types import Balances, Bool, Int, Market, Order, OrderBook, Str, Strings, Ticker, Tickers, Trade
+from ccxt.base.types import Balances, Int, Market, Order, OrderBook, Str, Strings, Ticker, Tickers, Trade
 from ccxt.async_support.base.ws.client import Client
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
@@ -81,9 +81,9 @@ class whitebit(ccxt.async_support.whitebit):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         interval = self.safe_integer(self.options['timeframes'], timeframe)
-        marketId = market['id']
+        marketId = self.safe_string(market, 'id')
         # currently there is no way of knowing
         # the interval upon getting an update
         # so that can't be part of the message hash, and the user can only subscribe
@@ -121,7 +121,7 @@ class whitebit(ccxt.async_support.whitebit):
             data = params[i]
             marketId = self.safe_string(data, 7)
             market = self.safe_market(marketId)
-            symbol = market['symbol']
+            symbol = self.safe_string(market, 'symbol', '')
             messageHash = 'candles' + ':' + symbol
             parsed = self.parse_ohlcv(data, market)
             if not (symbol in self.ohlcvs):
@@ -248,7 +248,7 @@ class whitebit(ccxt.async_support.whitebit):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         method = 'market_subscribe'
         messageHash = 'ticker:' + symbolValue
         # every time we want to subscribe to another market we have to "re-subscribe" sending it all again
@@ -307,7 +307,7 @@ class whitebit(ccxt.async_support.whitebit):
         tickers = self.safe_list(message, 'params', [])
         marketId = self.safe_string(tickers, 0)
         market = self.safe_market(marketId)
-        symbol = market['symbol']
+        symbol = self.safe_string(market, 'symbol', '')
         rawTicker = self.safe_dict(tickers, 1, {})
         messageHash = 'ticker' + ':' + symbol
         ticker = self.parse_ticker(rawTicker, market)
@@ -346,7 +346,7 @@ class whitebit(ccxt.async_support.whitebit):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'trades' + ':' + symbolValue
         method = 'trades_subscribe'
         # every time we want to subscribe to another market we have to 're-subscribe' sending it all again
@@ -384,7 +384,7 @@ class whitebit(ccxt.async_support.whitebit):
         params = self.safe_list(message, 'params', [])
         marketId = self.safe_string(params, 0)
         market = self.safe_market(marketId)
-        symbol = market['symbol']
+        symbol = self.safe_string(market, 'symbol', '')
         stored = self.safe_value(self.trades, symbol)
         if stored is None:
             limit = self.safe_integer(self.options, 'tradesLimit', 1000)
@@ -415,7 +415,7 @@ class whitebit(ccxt.async_support.whitebit):
             await self.load_markets()
         await self.authenticate()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'myTrades:' + symbolValue
         method = 'deals_subscribe'
         trades = await self.watch_multiple_subscription(messageHash, method, symbolValue, True, params)
@@ -537,7 +537,7 @@ class whitebit(ccxt.async_support.whitebit):
             await self.load_markets()
         await self.authenticate()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'orders:' + symbolValue
         method = 'ordersPending_subscribe'
         trades = await self.watch_multiple_subscription(messageHash, method, symbolValue, False, params)
@@ -630,7 +630,7 @@ class whitebit(ccxt.async_support.whitebit):
             amount = self.safe_string(order, 'amount')
         timestamp = self.safe_timestamp(order, 'ctime')
         lastTradeTimestamp = self.safe_timestamp(order, 'mtime')
-        symbol = marketResolved['symbol']
+        symbol = self.safe_string(marketResolved, 'symbol', '')
         rawSide = self.safe_integer(order, 'side')
         side = 'buy'
         if rawSide == 1:
@@ -838,7 +838,7 @@ class whitebit(ccxt.async_support.whitebit):
         if client is None:
             subscription = {}
             market = self.market(symbol)
-            marketId = market['id']
+            marketId = self.safe_string(market, 'id')
             if marketId is not None:
                 subscription[marketId] = True
             marketIds = [marketId]
@@ -855,7 +855,7 @@ class whitebit(ccxt.async_support.whitebit):
             subscription = self.safe_dict(client.subscriptions, method, {})
             hasSymbolSubscription = True
             market = self.market(symbol)
-            marketId = market['id']
+            marketId = self.safe_string(market, 'id')
             isSubscribed = self.safe_bool(subscription, marketId, False)
             if not isSubscribed:
                 if marketId is not None:
@@ -981,7 +981,7 @@ class whitebit(ccxt.async_support.whitebit):
         future.resolve(1)
         return message
 
-    def handle_error_message(self, client: Client, message: dict) -> Bool:
+    def handle_error_message(self, client: Client, message: dict) -> bool:
         #
         #     {
         #         "error": { code: 1, message: "invalid argument" },
@@ -1049,7 +1049,7 @@ class whitebit(ccxt.async_support.whitebit):
                 if (subId is not None) and (subId == id):
                     method = self.safe_value(subscription, 'method')
                     if method is not None:
-                        method(client, message)
+                        self.handle_authenticate(client, message)
                         return
 
     def handle_pong(self, client: Client, message: dict) -> dict:

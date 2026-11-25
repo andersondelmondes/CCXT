@@ -803,8 +803,9 @@ class lbank extends lbank$1["default"] {
             await this.loadMarkets();
         }
         const market = this.market(symbol);
+        const marketSymbol = this.safeString(market, 'symbol', '');
         if (this.safeBool(market, 'swap', false)) {
-            const responseForSwap = await this.fetchTickers([market['symbol']], params);
+            const responseForSwap = await this.fetchTickers([marketSymbol], params);
             const swapTicker = this.safeDict(responseForSwap, market['symbol']);
             return swapTicker;
         }
@@ -1365,22 +1366,6 @@ class lbank extends lbank$1["default"] {
             }
             return this.safeBalance(result);
         }
-        // from spotPrivatePostSupplementUserInfo
-        const isArray = Array.isArray(data);
-        if (isArray) {
-            for (let i = 0; i < data.length; i++) {
-                const item = this.safeDict(data, i);
-                const currencyId = this.safeString(item, 'coin');
-                const codeInner = this.safeCurrencyCode(currencyId);
-                const account = this.account();
-                account['free'] = this.safeString(item, 'usableAmt');
-                account['used'] = this.safeString(item, 'freezeAmt');
-                if (codeInner !== undefined) {
-                    result[codeInner] = account;
-                }
-            }
-            return this.safeBalance(result);
-        }
         return this.safeBalance(result);
     }
     parseFundingRate(ticker, market = undefined) {
@@ -1444,7 +1429,8 @@ class lbank extends lbank$1["default"] {
             await this.loadMarkets();
         }
         const market = this.market(symbol);
-        const responseForSwap = await this.fetchFundingRates([market['symbol']], params);
+        const marketSymbol = this.safeString(market, 'symbol', '');
+        const responseForSwap = await this.fetchFundingRates([marketSymbol], params);
         const fundingRate = this.safeDict(responseForSwap, market['symbol']);
         return fundingRate;
     }
@@ -1607,8 +1593,8 @@ class lbank extends lbank$1["default"] {
         const fees = this.safeList(response, 'data', []);
         const result = {};
         for (let i = 0; i < fees.length; i++) {
-            const fee = this.parseTradingFee(fees[i]);
-            const symbol = fee['symbol'];
+            const fee = this.parseTradingFee(this.extend({}, fees[i]));
+            const symbol = this.safeString(fee, 'symbol');
             if (symbol !== undefined) {
                 result[symbol] = fee;
             }
@@ -2005,12 +1991,6 @@ class lbank extends lbank$1["default"] {
             return this.parseOrder(this.safeDict(result, 0, {}));
         }
         else {
-            // const parsedOrders = [];
-            // for (let i = 0; i < numOrders; i++) {
-            //     const parsedOrder = this.parseOrder (result[i]);
-            //     parsedOrders.push (parsedOrder);
-            // }
-            // return parsedOrders;
             throw new errors.BadRequest(this.id + ' fetchOrder() can only fetch one order at a time');
         }
     }

@@ -276,7 +276,8 @@ class sxbet extends Exchange {
             }
             $paginationKey = $this->safe_string($result, 'nextKey');
             $page = $page + 1;
-            $collectedLength = $this->parse_to_int(strlen($rawMarkets));
+            $rawMarketsCount = count($rawMarkets);
+            $collectedLength = $this->parse_to_int($rawMarketsCount);
             if (($pageMarketsLength < $pageSize) || ($page >= $maxPages) || ($paginationKey === null) || (($collectCap !== null) && ($collectedLength >= $collectCap))) {
                 break;
             }
@@ -333,8 +334,8 @@ class sxbet extends Exchange {
         //     }
         //
         $marketHash = $this->safe_string($raw, 'marketHash', '');
-        $teamOneName = $this->safe_string($raw, 'teamOneName');
-        $teamTwoName = $this->safe_string($raw, 'teamTwoName');
+        $teamOneName = $this->safe_string($raw, 'teamOneName', '');
+        $teamTwoName = $this->safe_string($raw, 'teamTwoName', '');
         $outcomeOneName = $this->safe_string($raw, 'outcomeOneName');
         $outcomeTwoName = $this->safe_string($raw, 'outcomeTwoName');
         $eventSlug = $this->shorten_slug($teamOneName . ' ' . $teamTwoName);
@@ -354,14 +355,17 @@ class sxbet extends Exchange {
             $gameTime = $this->safe_timestamp($raw, 'gameTime');
         }
         $outcomeLabels = array( $outcomeOneName, $outcomeTwoName );
-        $outcomeIds = array( $marketHash, $marketHash . '-2' );
         $outcomes = array();
         for ($oi = 0; $oi < count($outcomeLabels); $oi++) {
             $label = $outcomeLabels[$oi];
             $outcomeHandle = $this->slug_to_outcome_symbol($eventSlug, $marketSlug, $label);
+            $outcomeSuffix = '';
+            if ($oi > 0) {
+                $outcomeSuffix = '-2';
+            }
             $outcomes[] = array(
-                'id' => $outcomeIds[$oi],
-                'outcomeId' => $outcomeIds[$oi],
+                'id' => $marketHash . $outcomeSuffix,
+                'outcomeId' => $marketHash . $outcomeSuffix,
                 'outcome' => $outcomeHandle,
                 'market' => $marketSymbol,
                 'label' => $label,
@@ -459,6 +463,7 @@ class sxbet extends Exchange {
             $queries[] = $tags[$i];
         }
         $rest = $this->omit($params, array( 'eventId', 'slug', 'leagueId', 'sportId', 'query', 'queries', 'tags', 'status', 'sort', 'searchIn', 'limit' ));
+        $rawMarkets = array();
         if ($eventId !== null) {
             $rawMarkets = Async\await($this->fetch_raw_markets_paged($this->extend(array( 'sportXeventId' => $eventId ), $rest), null));
             // the venue's sportXeventId filter on /markets/active is unreliable (observed live
@@ -511,7 +516,8 @@ class sxbet extends Exchange {
             $evMarketsLength = count($evMarkets);
             for ($j = 0; $j < $evMarketsLength; $j++) {
                 $m = $evMarkets[$j];
-                $this->markets[$m['market']] = $m;
+                $marketKey = $this->safe_string($m, 'market', '');
+                $this->markets[$marketKey] = $m;
             }
             $result[] = $event;
         }
@@ -535,6 +541,7 @@ class sxbet extends Exchange {
          * @param {array} [$params] extra parameters specific to the exchange API endpoint
          * @return {array} a [prediction $event structure](https://docs.ccxt.com/#/?$id=prediction-$event-structure)
          */
+        $rawMarkets = array();
         $rawMarkets = Async\await($this->fetch_raw_markets_paged($this->extend(array( 'sportXeventId' => $id ), $params), null));
         // enforce the fixture scope client-side — see filterRawMarketsByFixture
         $rawMarkets = $this->filter_raw_markets_by_fixture($rawMarkets, $id);
@@ -711,8 +718,8 @@ class sxbet extends Exchange {
         $signature = $this->ecdsa(mb_substr($digest, -64), mb_substr($privateKey, -64), 'secp256k1', null);
         // assign to bare locals before padStart — the php transpiler's str_pad regex only
         // matches a simple identifier, an expression form leaks a raw padStart() call
-        $rRaw = $signature['r'];
-        $sRaw = $signature['s'];
+        $rRaw = $this->safe_string($signature, 'r', '');
+        $sRaw = $this->safe_string($signature, 's', '');
         $r = str_pad($rRaw, 64, '0', STR_PAD_LEFT);
         $s = str_pad($sRaw, 64, '0', STR_PAD_LEFT);
         $v = $this->int_to_base16($this->sum(27, $signature['v']));
@@ -1956,7 +1963,7 @@ class sxbet extends Exchange {
         if ($outcomes === null) {
             throw new ArgumentsRequired($this->id . ' fetchTickers() requires an outcomes argument - sx.bet has thousands of markets and serves best odds per market list');
         }
-        $outcomesList = $outcomes;
+        $outcomesList = ($outcomes === null) ? array() : $outcomes;
         $outcomesLength = count($outcomesList);
         $hashesOrder = array();
         $seenHashes = array();
@@ -1977,7 +1984,7 @@ class sxbet extends Exchange {
         $hasApiKey = !$this->is_empty_string($this->apiKey);
         if (!$hasApiKey) {
             for ($i = 0; $i < $hashesLength; $i++) {
-                $marketHash = $hashesOrder[$i];
+                $marketHash = $this->safe_string($hashesOrder, $i, '');
                 $snapshot = Async\await($this->fetch_sxbet_book_snapshot($marketHash));
                 $rowsByHash[$marketHash] = $this->parse_sxbet_snapshot_best_odds($snapshot);
             }
@@ -2272,11 +2279,11 @@ class sxbet extends Exchange {
         return Async\await($client->future('centrifugoConnected'));
     }
 
-    public function pong(Client $client, mixed $message = null) {
-        return Async\async(self::do_pong(...))($client, $message);
+    public function pong(Client $client) {
+        return Async\async(self::do_pong(...))($client);
     }
 
-    private function do_pong(Client $client, mixed $message = null) {
+    private function do_pong(Client $client) {
         // Centrifugo server pings are empty frames; reply with the same empty frame to keep the link alive
         Async\await($client->send('{}'));
     }
@@ -2317,7 +2324,7 @@ class sxbet extends Exchange {
         $keys = is_array($msg) ? array_keys($msg) : array();
         $keysLength = count($keys);
         if ($keysLength === 0) {
-            $this->spawn(array($this, 'pong'), $client, $msg);
+            $this->spawn(array($this, 'pong'), $client);
             return;
         }
         $requestIdString = $this->safe_string($msg, 'id');
@@ -2458,7 +2465,7 @@ class sxbet extends Exchange {
         }
         $held = $this->safe_string($this->safe_dict($this->options, 'wsBookVersions', array()), $marketHash, '');
         // versions are fixed-width numeric strings - replace only on a strictly newer publication
-        if (($held !== '') && ($version <= $held)) {
+        if (($held !== '') && (($version === '') || Precise::string_le($version, $held))) {
             return $refreshed;
         }
         $this->set_ws_option('wsBookVersions', $marketHash, $version);
@@ -2507,7 +2514,7 @@ class sxbet extends Exchange {
             $refreshed = $this->apply_sxbet_ws_snapshot($rows[$i]);
             $refreshedLength = count($refreshed);
             for ($j = 0; $j < $refreshedLength; $j++) {
-                $sym = $refreshed[$j];
+                $sym = $this->safe_string($refreshed, $j, '');
                 $client->resolve($this->safe_value($this->orderbooks, $sym), 'orderbook::' . $sym);
             }
         }
@@ -2538,7 +2545,9 @@ class sxbet extends Exchange {
         $client = $this->client($url);
         $channel = 'best_odds_v3:global';
         $hydrated = false;
-        if ($this->safe_dict($this->safe_dict($this->options, 'wsTickers', array()), $sym) === null) {
+        $cachedTickers = $this->safe_dict($this->options, 'wsTickers', array());
+        $cachedTicker = $this->safe_dict($cachedTickers, $sym);
+        if ($cachedTicker === null) {
             // hydrate from the REST snapshot so the first call does not hang until the
             // market's next top-of-book change - the channel is global, so the seed must fire
             // for every newly watched market, not only on a fresh subscription
@@ -2789,7 +2798,7 @@ class sxbet extends Exchange {
         for ($i = 0; $i < $rowsLength; $i++) {
             $rawRow = $rows[$i];
             $row = $this->safe_dict($rawRow, 'order', $rawRow);
-            $order = $this->parse_prediction_order($row);
+            $order = $this->parse_prediction_order($this->extend(array(), $row));
             if ($this->orders === null) {
                 $cacheLimit = $this->safe_integer($this->options, 'ordersLimit', 1000);
                 $this->orders = new ArrayCacheByOutcomeById($cacheLimit);
@@ -2804,7 +2813,7 @@ class sxbet extends Exchange {
         }
     }
 
-    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody) {
+    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody): ?bool {
         // sx.bet returns { "error": "Bad Request", "message": <code or [strings]>, "statusCode": 4xx };
         // map the known codes to ccxt errors so callers can distinguish a rejected order or a
         // validation problem from a transport outage (the base otherwise maps a bare 4xx to the
@@ -2849,10 +2858,13 @@ class sxbet extends Exchange {
         if (($accessLevel === 'private') && ($this->apiKey === null)) {
             throw new AuthenticationError($this->id . ' ' . $path . ' is a private endpoint and requires the apiKey credential (the x-sx-api-key header)');
         }
-        $baseUrls = $this->urls['api'];
-        $baseUrl = $this->safe_string($baseUrls, $apiGroup, $baseUrls['sxbet']);
+        $baseUrl = $this->safe_string($this->urls['api'], 'sxbet', '');
+        $groupUrl = $this->safe_string($this->urls['api'], $apiGroup);
+        if ($groupUrl !== null) {
+            $baseUrl = $groupUrl;
+        }
         $url = $baseUrl . '/' . $this->implode_params($path, $params);
-        $query = $this->omit($params, $this->extract_params($path));
+        $query = $this->extend(array(), $this->omit($params, $this->extract_params($path)));
         $existingHeaders = array();
         $headersExtended = $this->extend(array(
             'Accept' => 'application/json',
@@ -2865,7 +2877,11 @@ class sxbet extends Exchange {
         // /orders-v3/all and /orders-v3/event - take query parameters, like every GET
         $sendAsQuery = ($method === 'GET');
         if ($method === 'DELETE') {
-            $sendAsQuery = !(is_array($query) && array_key_exists('orders' ?? '', $query));
+            if (is_array($query) && array_key_exists('orders' ?? '', $query)) {
+                $sendAsQuery = false;
+            } else {
+                $sendAsQuery = true;
+            }
         }
         $bodyValue = null;
         if ($sendAsQuery) {

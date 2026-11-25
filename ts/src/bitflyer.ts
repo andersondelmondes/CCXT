@@ -5,7 +5,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import Exchange from './abstract/bitflyer.js';
 import { ExchangeError, ArgumentsRequired, OrderNotFound, OnMaintenance } from './base/errors.js';
 import { TICK_SIZE } from './base/functions/number.js';
-import type { Balances, Currency, Dict, Fee, FundingRate, Int, Market, MarketInterface, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Trade, TradingFeeInterface, Transaction, Position, int, List, NullableDict, Endpoint } from './base/types.js';
+import type { Balances, Currency, Dict, Fee, FundingRate, Int, Market, MarketInterface, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Trade, TradingFeeInterface, Transaction, Position, int, List, NullableDict, Endpoint, Bool } from './base/types.js';
 import { Precise } from './base/Precise.js';
 
 //  ---------------------------------------------------------------------------
@@ -1154,10 +1154,10 @@ export default class bitflyer extends Exchange {
         let type: Str = undefined;
         let status: Str = undefined;
         let fee: Fee = undefined;
-        if ('fee' in transaction) {
+        const feeCost = this.safeString (transaction, 'fee');
+        if (feeCost !== undefined) {
             type = 'withdrawal';
             status = this.parseWithdrawalStatus (rawStatus);
-            const feeCost = this.safeString (transaction, 'fee');
             const additionalFee = this.safeString (transaction, 'additional_fee');
             fee = { 'currency': code, 'cost': this.parseNumber (Precise.stringAdd (feeCost, additionalFee)) };
         } else {
@@ -1289,7 +1289,7 @@ export default class bitflyer extends Exchange {
         return { 'url': url, 'method': method, 'body': bodyResolved, 'headers': headersResolved };
     }
 
-    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str) {
+    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool {
         if (response === undefined) {
             return undefined; // fallback to the default error handler
         }

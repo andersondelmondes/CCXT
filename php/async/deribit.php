@@ -1021,7 +1021,7 @@ class deribit extends Exchange {
                 } elseif (!$isComboMarket) {
                     $symbol = $base . '/' . $quote . ':' . $settle;
                     if ($option || $future) {
-                        $symbol = $symbol . '-' . $this->yymmdd($expiry, '');
+                        $symbol = $symbol . ('-' . $this->yymmdd($expiry, ''));
                         if ($option) {
                             $strike = $this->safe_number($market, 'strike');
                             $optionType = $this->safe_string($market, 'option_type');
@@ -1513,8 +1513,8 @@ class deribit extends Exchange {
         $result = $this->safe_list($response, 'result', array());
         $tickers = array();
         for ($i = 0; $i < count($result); $i++) {
-            $ticker = $this->parse_ticker($result[$i]);
-            $symbol = $ticker['symbol'];
+            $ticker = $this->parse_ticker($this->safe_dict($result, $i, array()));
+            $symbol = $this->safe_string($ticker, 'symbol');
             if ($symbol !== null) {
                 $tickers[$symbol] = $ticker;
             }
@@ -1559,7 +1559,10 @@ class deribit extends Exchange {
         $defaultLimit = 1000;
         $windowLimit = ($limit === null) ? $defaultLimit : $limit;
         $limitResolved = (($since === null) && ($limit === null)) ? $defaultLimit : $limit;
-        $sinceResolved = ($since === null) ? null : max($since - 1, 0);
+        $sinceResolved = null;
+        if ($since !== null) {
+            $sinceResolved = max($since - 1, 0);
+        }
         if ($since === null) {
             $request['start_timestamp'] = $now - ($windowLimit - 1) * $duration * 1000;
             $request['end_timestamp'] = $now;
@@ -1724,7 +1727,10 @@ class deribit extends Exchange {
             $request['count'] = min($limit, 1000); // default 10
         }
         $until = $this->safe_integer_2($params, 'until', 'end_timestamp');
-        $paramsOmitted = ($until !== null) ? $this->omit($params, array( 'until' )) : $params;
+        $paramsOmitted = $this->omit($params, array());
+        if ($until !== null) {
+            $paramsOmitted = $this->omit($params, array( 'until' ));
+        }
         if ($until !== null) {
             $request['end_timestamp'] = $until;
         }
@@ -2144,7 +2150,7 @@ class deribit extends Exchange {
         //     }
         //
         $result = $this->safe_dict($response, 'result', array());
-        return $this->parse_order($result, $market);
+        return $this->parse_order($this->extend(array(), $result), $market);
     }
 
     public function create_order(string $symbol, string $type, string $side, float $amount, ?float $price = null, $params = array()): PromiseInterface {
@@ -2364,9 +2370,9 @@ class deribit extends Exchange {
         }
         $trailingAmount = $this->safe_string_2($params, 'trailingAmount', 'trigger_offset');
         $isTrailingAmountOrder = $trailingAmount !== null;
-        $paramsOmitted = $params;
+        $paramsOmitted = $this->omit($params, array());
         if ($isTrailingAmountOrder) {
-            $paramsOmitted = $this->omit($params, 'trigger_offset');
+            $paramsOmitted = $this->omit($paramsOmitted, 'trigger_offset');
         }
         if ($isTrailingAmountOrder) {
             $request['trigger_offset'] = $this->parse_to_numeric($trailingAmount);
@@ -2400,7 +2406,7 @@ class deribit extends Exchange {
         );
         $response = Async\await($this->privateGetCancel($this->extend($request, $params)));
         $result = $this->safe_dict($response, 'result', array());
-        return $this->parse_order($result);
+        return $this->parse_order($this->extend(array(), $result));
     }
 
     public function cancel_all_orders(?string $symbol = null, $params = array()): PromiseInterface {
@@ -3515,7 +3521,7 @@ class deribit extends Exchange {
         $rates = array();
         $result = $this->safe_list($response, 'result', array());
         for ($i = 0; $i < count($result); $i++) {
-            $fr = $this->safe_dict($result, $i);
+            $fr = $this->safe_dict($result, $i, array());
             $rate = $this->parse_funding_rate($fr, $market);
             $rates[] = $rate;
         }
@@ -4199,7 +4205,7 @@ class deribit extends Exchange {
         return array( 'url' => $url, 'method' => $method, 'body' => null, 'headers' => null );
     }
 
-    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody) {
+    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody): ?bool {
         if (($response === null) || ($response === null)) {
             return null; // fallback to default error handler
         }

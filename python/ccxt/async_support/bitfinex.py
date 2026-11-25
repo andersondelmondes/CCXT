@@ -6,7 +6,7 @@
 from ccxt.async_support.base.exchange import Exchange
 from ccxt.abstract.bitfinex import ImplicitAPI
 import hashlib
-from ccxt.base.types import Balances, Currencies, Currency, DepositAddress, Int, LedgerEntry, Liquidation, MarginModification, Market, Num, Order, OrderBook, OrderRequest, OrderSide, OrderType, Position, Status, Str, Strings, Ticker, Tickers, FundingRate, OpenInterest, FundingRates, OpenInterests, Trade, TradingFees, Transaction, FundingRateHistory, TransferEntry
+from ccxt.base.types import Balances, Bool, Currencies, Currency, DepositAddress, Int, LedgerEntry, Liquidation, MarginModification, Market, Num, Order, OrderBook, OrderRequest, OrderSide, OrderType, Position, Status, Str, Strings, Ticker, Tickers, FundingRate, OpenInterest, FundingRates, OpenInterests, Trade, TradingFees, Transaction, FundingRateHistory, TransferEntry
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import PermissionDenied
@@ -551,12 +551,13 @@ class bitfinex(Exchange, ImplicitAPI):
 
     def is_fiat(self, code: object) -> bool:
         fiat = self.safe_dict(self.options, 'fiat', {})
-        return(code in fiat)
+        return self.safe_string(fiat, code) is not None
 
     def get_currency_name(self, code: str) -> str:
         # temporary fix for transpiler recognition, even though this is in parent class
-        if code in self.options['currencyNames']:
-            return self.options['currencyNames'][code]
+        name = self.safe_string(self.options['currencyNames'], code)
+        if name is not None:
+            return name
         raise NotSupported(self.id + ' ' + code + ' not supported for withdrawal')
 
     def amount_to_precision(self, symbol: Str, amount: object) -> str:
@@ -1153,10 +1154,10 @@ class bitfinex(Exchange, ImplicitAPI):
         fullRequest = self.extend(request, params)
         orderbook = await self.publicGetBookSymbolPrecision(fullRequest)
         timestamp = self.milliseconds()
+        bids = []
+        asks = []
         result = {
             'symbol': market['symbol'],
-            'bids': [],
-            'asks': [],
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
             'nonce': None,
@@ -1168,15 +1169,15 @@ class bitfinex(Exchange, ImplicitAPI):
             price = self.safe_number(order, priceIndex)
             signedAmount = self.safe_string(order, 2)
             amount = Precise.string_abs(signedAmount)
-            side = 'asks'
             if Precise.string_gt(signedAmount, '0'):
-                side = 'bids'
-            result[side].append([price, self.parse_number(amount)])
-        result['bids'] = self.sort_by(result['bids'], 0, True)
-        result['asks'] = self.sort_by(result['asks'], 0)
+                bids.append([price, self.parse_number(amount)])
+            else:
+                asks.append([price, self.parse_number(amount)])
+        result['bids'] = self.sort_by(bids, 0, True)
+        result['asks'] = self.sort_by(asks, 0)
         return result
 
-    def parse_ticker(self, ticker: list, market: Market = None) -> Ticker:
+    def parse_ticker_list(self, ticker: list, market: Market = None) -> Ticker:
         #
         # on trading pairs (ex. tBTCUSD)
         #
@@ -1348,7 +1349,10 @@ class bitfinex(Exchange, ImplicitAPI):
         #         ...
         #     ]
         #
-        return self.parse_tickers(tickers, symbolsNormalized)
+        results = []
+        for i in range(0, len(tickers)):
+            results.append(self.parse_ticker_list(self.safe_list(tickers, i, [])))
+        return self.filter_by_array_tickers(results, 'symbol', symbolsNormalized)
 
     async def fetch_ticker(self, symbol: str, params: dict = {}) -> Ticker:
         """
@@ -1367,7 +1371,7 @@ class bitfinex(Exchange, ImplicitAPI):
             'symbol': market['id'],
         }
         ticker = await self.publicGetTickerSymbol(self.extend(request, params))
-        return self.parse_ticker(ticker, market)
+        return self.parse_ticker_list(ticker, market)
 
     def parse_trade(self, trade: dict, market: Market = None) -> Trade:
         #
@@ -1689,7 +1693,8 @@ class bitfinex(Exchange, ImplicitAPI):
         """
         market = self.market(symbol)
         amountString = self.amount_to_precision(symbol, amount)
-        amountString = amountString if (side == 'buy') else (Precise.string_neg(amountString))
+        if side != 'buy':
+            amountString = Precise.string_neg(amountString)
         request = {
             'symbol': market['id'],
             'amount': amountString,
@@ -1940,7 +1945,11 @@ class bitfinex(Exchange, ImplicitAPI):
             request = {
                 'id': self.parse_to_int(id),
             }
-        paramsOmitted = self.omit(params, ['cid', 'clientOrderId']) if (cid is not None) else params
+        paramsOmitted = {}
+        if cid is not None:
+            paramsOmitted = self.omit(params, ['cid', 'clientOrderId'])
+        else:
+            paramsOmitted = params
         response = await self.privatePostAuthWOrderCancel(self.extend(request, paramsOmitted))
         order = self.safe_list(response, 4)
         newOrder = {'result': order}
@@ -2373,7 +2382,7 @@ class bitfinex(Exchange, ImplicitAPI):
         }
         return self.safe_string(statuses, status, status)
 
-    def parse_transaction(self, transaction: list, currency: Currency = None) -> Transaction:
+    def parse_transaction_row(self, transaction: list, currency: Currency = None) -> Transaction:
         #
         # withdraw
         #
@@ -2606,7 +2615,9 @@ class bitfinex(Exchange, ImplicitAPI):
                 'percentage': True,
                 'tierBased': True,
             }
-            if market['quote'] in fiat:
+            quote = self.safe_string(market, 'quote')
+            fiatQuote = self.safe_string(fiat, quote)
+            if fiatQuote is not None:
                 fee['maker'] = makerFeeFiat
                 fee['taker'] = takerFeeFiat
             elif self.safe_bool(market, 'contract', False):
@@ -2676,7 +2687,11 @@ class bitfinex(Exchange, ImplicitAPI):
         #         ]
         #     ]
         #
-        return self.parse_transactions(response, currency, since, limit)
+        result = []
+        for i in range(0, len(response)):
+            result.append(self.parse_transaction_row(self.safe_list(response, i, []), currency))
+        sorted = self.sort_by(result, 'timestamp')
+        return self.filter_by_currency_since_limit(sorted, self.safe_string(currency, 'code'), since, limit)
 
     async def withdraw(self, code: str, amount: float, address: str, params: dict = {}) -> Transaction:
         """
@@ -2761,7 +2776,7 @@ class bitfinex(Exchange, ImplicitAPI):
         text = self.safe_string(response, 7)
         if text != 'success':
             self.throw_broadly_matched_exception(self.exceptions['broad'], text, text)
-        return self.parse_transaction(response, currency)
+        return self.parse_transaction_row(response, currency)
 
     async def fetch_positions(self, symbols: Strings = None, params: dict = {}) -> list[Position]:
         """
@@ -2924,7 +2939,7 @@ class bitfinex(Exchange, ImplicitAPI):
         headersResolved = requestHeaders
         return {'url': url, 'method': method, 'body': bodyResolved, 'headers': headersResolved}
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         # ["error", 11010, "ratelimit: error"]
         if response is not None:
             if not isinstance(response, list):
@@ -2933,8 +2948,6 @@ class bitfinex(Exchange, ImplicitAPI):
                 self.throw_exactly_matched_exception(self.exceptions['exact'], message, feedback)
                 self.throw_broadly_matched_exception(self.exceptions['broad'], message, feedback)
                 raise ExchangeError(self.id + ' ' + body)
-        elif response == '':
-            raise ExchangeError(self.id + ' returned empty response')
         if code == 429:
             raise RateLimitExceeded(self.id + ' ' + body)
         if code == 500:
@@ -2946,7 +2959,9 @@ class bitfinex(Exchange, ImplicitAPI):
             self.throw_exactly_matched_exception(self.exceptions['exact'], errorCode, feedback)
             self.throw_exactly_matched_exception(self.exceptions['exact'], errorText, feedback)
             raise ExchangeError(self.id + ' ' + errorText + ' (#' + errorCode + ')')
-        return response
+        if response is None:
+            return None
+        return True
 
     def parse_ledger_entry_type(self, type: Str) -> Str:
         if type is None:
@@ -3181,8 +3196,7 @@ class bitfinex(Exchange, ImplicitAPI):
         rates = []
         for i in range(0, len(rawRatesData)):
             fr = rawRatesData[i]
-            rate = self.parse_funding_rate_history(fr, market)
-            rates.append(rate)
+            rates.append(self.parse_funding_rate_history_row(fr, market))
         reversedArray = []
         rawRates = self.filter_by_symbol_since_limit(rates, symbol, since, limit)
         ratesLength = len(rawRates)
@@ -3245,7 +3259,7 @@ class bitfinex(Exchange, ImplicitAPI):
             'interval': None,
         }
 
-    def parse_funding_rate_history(self, contract: object, market: Market = None) -> FundingRateHistory:
+    def parse_funding_rate_history_row(self, contract: object, market: Market = None) -> FundingRateHistory:
         #
         # [
         #     1691165494000,
@@ -3638,9 +3652,9 @@ class bitfinex(Exchange, ImplicitAPI):
         #     ]
         #
         data = self.safe_value(response, 0)
-        return self.parse_margin_modification(data, market)
+        return self.parse_margin_modification_row(data, market)
 
-    def parse_margin_modification(self, data: list, market: Market = None) -> MarginModification:
+    def parse_margin_modification_row(self, data: list, market: Market = None) -> MarginModification:
         #
         # setMargin
         #
@@ -3764,7 +3778,8 @@ class bitfinex(Exchange, ImplicitAPI):
         }
         if amount is not None:
             amountString = self.amount_to_precision(symbol, amount)
-            amountString = amountString if (side == 'buy') else (Precise.string_neg(amountString))
+            if side != 'buy':
+                amountString = Precise.string_neg(amountString)
             request['amount'] = amountString
         triggerPrice = self.safe_string_2(params, 'stopPrice', 'triggerPrice')
         trailingAmount = self.safe_string(params, 'trailingAmount')

@@ -187,7 +187,7 @@ class apex extends \ccxt\async\apex {
         $id = $this->safe_string_n($trade, array( 'i', 'id', 'v' ));
         $marketId = $this->safe_string_2($trade, 's', 'symbol');
         $marketResolved = $this->safe_market($marketId, $market, null);
-        $symbol = $marketResolved['symbol'];
+        $symbol = $this->safe_string($marketResolved, 'symbol');
         $timestamp = $this->safe_integer_n($trade, array( 't', 'T', 'createdAt' ));
         $side = $this->safe_string_lower_2($trade, 'S', 'side');
         $price = $this->safe_string_2($trade, 'p', 'price');
@@ -279,7 +279,8 @@ class apex extends \ccxt\async\apex {
         $client = $this->client($url);
         $newTopics = array();
         for ($i = 0; $i < count($topics); $i++) {
-            if (!(is_array($client->subscriptions) && array_key_exists($messageHashes[$i] ?? '', $client->subscriptions))) {
+            $messageHash = $this->safe_string($messageHashes, $i, '');
+            if (!(is_array($client->subscriptions) && array_key_exists($messageHash ?? '', $client->subscriptions))) {
                 $newTopics[] = $topics[$i];
             }
         }
@@ -485,8 +486,8 @@ class apex extends \ccxt\async\apex {
         $topic = $this->safe_string($message, 'topic', '');
         $updateType = $this->safe_string($message, 'type', '');
         $data = $this->safe_dict($message, 'data', array());
-        $symbol = null;
         $parsed = $this->parse_ticker($data);
+        $symbol = $this->safe_string($parsed, 'symbol');
         if (($updateType === 'snapshot')) {
             $parsed = $this->parse_ticker($data);
             $symbol = $this->safe_string($parsed, 'symbol');
@@ -500,6 +501,8 @@ class apex extends \ccxt\async\apex {
             $rawTicker = $this->safe_dict($ticker, 'info', array());
             $merged = $this->extend($rawTicker, $data);
             $parsed = $this->parse_ticker($merged);
+        } else {
+            $symbol = null;
         }
         $timestamp = $this->safe_integer_product($message, 'ts', 0.001);
         $parsed['timestamp'] = $timestamp;
@@ -528,7 +531,8 @@ class apex extends \ccxt\async\apex {
          */
         $params['callerMethodName'] = 'watchOHLCV';
         $result = Async\await($this->watch_ohlcv_for_symbols(array( array( $symbol, $timeframe ) ), $since, $limit, $params));
-        return $result[$symbol][$timeframe];
+        $bySymbol = $result[$symbol];
+        return $bySymbol[$timeframe];
     }
 
     public function watch_ohlcv_for_symbols(array $symbolsAndTimeframes, ?int $since = null, ?int $limit = null, $params = array()) {
@@ -795,9 +799,8 @@ class apex extends \ccxt\async\apex {
         $trades = $this->myTrades;
         $symbols = array();
         for ($i = 0; $i < count($lists); $i++) {
-            $rawTrade = $this->safe_dict($lists, $i, array());
-            $parsed = $this->parse_ws_trade($rawTrade);
-            $symbol = $parsed['symbol'];
+            $parsed = $this->parse_ws_trade($this->safe_dict($lists, $i, array()));
+            $symbol = $this->safe_string($parsed, 'symbol');
             $symbols[$symbol] = true;
             $trades->append($parsed);
         }
@@ -850,7 +853,7 @@ class apex extends \ccxt\async\apex {
         $symbols = array();
         for ($i = 0; $i < count($lists); $i++) {
             $parsed = $this->parse_order($this->safe_dict($lists, $i, array()));
-            $symbol = $parsed['symbol'];
+            $symbol = $this->safe_string($parsed, 'symbol');
             $symbols[$symbol] = true;
             $orders->append($parsed);
         }
@@ -930,8 +933,7 @@ class apex extends \ccxt\async\apex {
         $cache = $this->positions;
         $newPositions = array();
         for ($i = 0; $i < count($lists); $i++) {
-            $rawPosition = $this->safe_dict($lists, $i, array());
-            $position = $this->parse_position($rawPosition);
+            $position = $this->parse_position($this->safe_dict($lists, $i, array()));
             $side = $this->safe_string($position, 'side');
             // hacky solution to handle closing positions
             // without crashing, we should handle this properly later
@@ -998,7 +1000,7 @@ class apex extends \ccxt\async\apex {
         return Async\await($future);
     }
 
-    public function handle_error_message(Client $client, array $message): ?bool {
+    public function handle_error_message(Client $client, array $message): bool {
         //
         //   {
         //       "success": false,

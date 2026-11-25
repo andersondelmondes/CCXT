@@ -1244,7 +1244,7 @@ export default class dydx extends Exchange {
     retrieveCredentials() {
         let credentials = this.safeDict(this.options, 'dydxCredentials');
         if (credentials !== undefined) {
-            return credentials;
+            return this.safeDict(this.options, 'dydxCredentials', {});
         }
         const privateKeyOption = this.safeString(this.options, 'privateKey');
         if (privateKeyOption !== undefined) {
@@ -1259,7 +1259,7 @@ export default class dydx extends Exchange {
             'publicKey': this.binaryToBase16(credentials['publicKey']),
         };
         this.options['dydxCredentials'] = credentials;
-        return credentials;
+        return this.safeDict(this.options, 'dydxCredentials', {});
     }
     async fetchDydxAccount() {
         // required in js
@@ -1345,6 +1345,7 @@ export default class dydx extends Exchange {
         let conditionalType = 0;
         let conditionalOrderTriggerSubticks = '0';
         let orderFlag = undefined;
+        let isShortTerm = false;
         let timeInForceNumber = undefined;
         if (timeInForce === 'FOK') {
             throw new InvalidOrder(this.id + ' timeInForce fok has been deprecated');
@@ -1352,6 +1353,7 @@ export default class dydx extends Exchange {
         if (orderType === 'MARKET') {
             // short-term
             orderFlag = 0;
+            isShortTerm = true;
             clientMetadata = 1; // STOP_MARKET / TAKE_PROFIT_MARKET
             if (timeInForce !== undefined) {
                 // default is ioc
@@ -1362,6 +1364,7 @@ export default class dydx extends Exchange {
             if (timeInForce === 'GTT') {
                 // long-term
                 orderFlag = 64;
+                isShortTerm = false;
                 if (postOnly) {
                     timeInForceNumber = 2;
                 }
@@ -1371,6 +1374,7 @@ export default class dydx extends Exchange {
             }
             else {
                 orderFlag = 0;
+                isShortTerm = true;
                 if (timeInForce === 'IOC') {
                     timeInForceNumber = 1;
                 }
@@ -1382,6 +1386,7 @@ export default class dydx extends Exchange {
         if (isConditional) {
             // conditional
             orderFlag = 32;
+            isShortTerm = false;
             if (stopLossPrice !== undefined) {
                 conditionalType = 1;
                 conditionalOrderTriggerSubticks = this.priceToPrecision(symbol, stopLossPrice);
@@ -1398,7 +1403,7 @@ export default class dydx extends Exchange {
         const goodTillBlockTimeInSeconds = 2592000;
         // default is 30 days
         const [goodTillBlockTimeInSecondsOption, paramsGoodTillBlockTimeInSeconds] = this.handleOptionIntegerAndParams(paramsSubAccountId, 'createOrder', 'goodTillBlockTimeInSeconds', goodTillBlockTimeInSeconds);
-        if (orderFlag === 0) {
+        if (isShortTerm) {
             if (goodTillBlock === undefined) {
                 // short term order
                 if (latestBlockHeight === undefined) {
@@ -1447,9 +1452,15 @@ export default class dydx extends Exchange {
         const paramsOmitted = this.omit(paramsGoodTillBlockTimeInSeconds, ['reduceOnly', 'reduce_only', 'clientOrderId', 'postOnly', 'timeInForce', 'stopPrice', 'triggerPrice', 'stopLoss', 'takeProfit', 'latestBlockHeight', 'goodTillBlock', 'goodTillBlockTimeInSeconds', 'subaccountId']);
         const walletAddress = this.getWalletAddress();
         const clobPairId = this.safeInteger(marketInfo, 'clobPairId', 0);
-        const subaccountIdValue = (subaccountIdOption === undefined) ? 0 : subaccountIdOption;
+        let subaccountIdValue = 0;
+        if (subaccountIdOption !== undefined) {
+            subaccountIdValue = subaccountIdOption;
+        }
         const clientOrderIdValue = (clientOrderId === undefined) ? 0 : clientOrderId;
-        const orderFlagValue = (orderFlag === undefined) ? 0 : orderFlag;
+        let orderFlagValue = 0;
+        if (orderFlag !== undefined) {
+            orderFlagValue = orderFlag;
+        }
         const clobPairIdValue = (clobPairId === undefined) ? 0 : clobPairId;
         const orderId = this.createOrderIdFromParts(walletAddress, subaccountIdValue, clientOrderIdValue, orderFlagValue, clobPairIdValue);
         return [orderId, this.extend(signingPayload, paramsOmitted)];
@@ -1591,8 +1602,7 @@ export default class dydx extends Exchange {
         let goodTillBlockTime = undefined;
         const defaultOrderFlags = (isTrigger) ? 32 : 64;
         const orderFlags = this.safeInteger(paramsGoodTillBlockTimeInSeconds, 'orderFlags', defaultOrderFlags);
-        const subAccountId = 0;
-        const [subAccountIdOption] = this.handleOptionIntegerAndParams(paramsGoodTillBlockTimeInSeconds, 'cancelOrder', 'subAccountId', subAccountId);
+        const [subAccountIdOption] = this.handleOptionIntegerAndParams(paramsGoodTillBlockTimeInSeconds, 'cancelOrder', 'subAccountId', 0);
         if (orderFlags !== 0 && orderFlags !== 64 && orderFlags !== 32) {
             throw new InvalidOrder(this.id + ' invalid orderFlags, allowed values are (0, 64, 32).');
         }
@@ -1676,8 +1686,7 @@ export default class dydx extends Exchange {
         if (clientOrderIds === undefined) {
             throw new NotSupported(this.id + ' cancelOrders only support clientOrderIds.');
         }
-        const subAccountId = 0;
-        const [subAccountIdOption, paramsSubAccountId] = this.handleOptionIntegerAndParams(params, 'cancelOrders', 'subAccountId', subAccountId);
+        const [subAccountIdOption, paramsSubAccountId] = this.handleOptionIntegerAndParams(params, 'cancelOrders', 'subAccountId', 0);
         let goodTillBlock = this.safeInteger(paramsSubAccountId, 'goodTillBlock');
         if (goodTillBlock === undefined) {
             const latestBlockHeight = await this.fetchLatestBlockHeight();
@@ -1849,8 +1858,9 @@ export default class dydx extends Exchange {
         if (code !== undefined) {
             currency = this.currency(code);
         }
-        const response = await this.fetchTransactionsHelper('fetchLedger', code, since, limit, this.omit(params, 'methodName'));
-        return this.parseLedger(response, currency, since, limit);
+        let rows = [];
+        rows = await this.fetchTransactionsHelper('fetchLedger', code, since, limit, this.omit(params, 'methodName'));
+        return this.parseLedger(rows, currency, since, limit);
     }
     async estimateTxFee(message, memo, account) {
         const txBytes = this.encodeDydxTxForSimulation(message, memo, this.safeString(account, 'sequence'), this.safeDict(account, 'pub_key', {}));
@@ -2134,7 +2144,8 @@ export default class dydx extends Exchange {
      * @returns {object} a [transaction structure]{@link https://docs.ccxt.com/?id=transaction-structure}
      */
     async withdraw(code, amount, address, params = {}) {
-        const [tag, paramsWithdrawTag] = this.handleParamString(params, 'tag');
+        const tag = this.safeString(params, 'tag');
+        const paramsWithdrawTag = this.omit(params, 'tag');
         if (code !== 'USDC') {
             throw new NotSupported(this.id + ' withdraw() only support USDC');
         }
@@ -2542,6 +2553,8 @@ export default class dydx extends Exchange {
         // rewrite testnet parameters
         this.options['chainName'] = 'dydx-testnet-4';
         this.options['chainId'] = 11155111;
-        this.options['feeDenom']['CHAINTOKEN_DENOM'] = 'adv4tnt';
+        const feeDenomDict = this.safeDict(this.options, 'feeDenom', {});
+        feeDenomDict['CHAINTOKEN_DENOM'] = 'adv4tnt';
+        this.options['feeDenom'] = feeDenomDict;
     }
 }

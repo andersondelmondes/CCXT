@@ -79,7 +79,7 @@ export default class bitopro extends bitoproRest {
             await this.loadMarkets ();
         }
         const market = this.market (symbol);
-        const symbolValue: string = market['symbol'];
+        const symbolValue: string = this.safeString (market, 'symbol', '');
         const messageHash = 'ORDER_BOOK' + ':' + symbolValue;
         const marketIdValue = this.safeString (market, 'id', '');
         let endPart: Str = undefined;
@@ -116,7 +116,7 @@ export default class bitopro extends bitoproRest {
         //
         const marketId = this.safeString (message, 'pair');
         const market = this.safeMarket (marketId, undefined, '_');
-        const symbol = market['symbol'];
+        const symbol: string = this.safeString (market, 'symbol', '');
         const event = this.safeString (message, 'event');
         let orderbook = this.safeValue (this.orderbooks, symbol);
         if (orderbook === undefined) {
@@ -147,7 +147,7 @@ export default class bitopro extends bitoproRest {
             await this.loadMarkets ();
         }
         const market = this.market (symbol);
-        const symbolValue: string = market['symbol'];
+        const symbolValue: string = this.safeString (market, 'symbol', '');
         const messageHash = 'TRADE' + ':' + symbolValue;
         const trades = await this.watchPublic ('trades', messageHash, market['id']);
         let limitResolved: Int = limit;
@@ -179,7 +179,7 @@ export default class bitopro extends bitoproRest {
         //
         const marketId = this.safeString (message, 'pair');
         const market = this.safeMarket (marketId, undefined, '_');
-        const symbol = market['symbol'];
+        const symbol: string = this.safeString (market, 'symbol', '');
         const event = this.safeString (message, 'event');
         const rawData = this.safeList (message, 'data', []);
         const trades = this.parseTrades (rawData, market);
@@ -218,7 +218,7 @@ export default class bitopro extends bitoproRest {
         let messageHash = 'USER_TRADE';
         if (symbol !== undefined) {
             const market = this.market (symbol);
-            const symbolValue: string = market['symbol'];
+            const symbolValue: string = this.safeString (market, 'symbol', '');
             messageHash = messageHash + ':' + symbolValue;
         }
         const wsUrl = this.safeString (this.urls['ws'], 'private');
@@ -374,7 +374,7 @@ export default class bitopro extends bitoproRest {
             await this.loadMarkets ();
         }
         const market = this.market (symbol);
-        const symbolValue: string = market['symbol'];
+        const symbolValue: string = this.safeString (market, 'symbol', '');
         const messageHash = 'TICKER' + ':' + symbolValue;
         return await this.watchPublic ('tickers', messageHash, market['id']);
     }
@@ -404,7 +404,7 @@ export default class bitopro extends bitoproRest {
         }
         // market-ids are lowercase in REST API and uppercase in WS API
         const market = this.safeMarket (marketId, undefined, '_');
-        const symbol = market['symbol'];
+        const symbol: string = this.safeString (market, 'symbol', '');
         const event = this.safeString (message, 'event');
         const result = this.parseTicker (message, market);
         result['symbol'] = this.safeString (market, 'symbol'); // symbol returned from REST's parseTicker is distorted for WS, so re-set it from market object
@@ -441,7 +441,7 @@ export default class bitopro extends bitoproRest {
         this.extendExchangeOptions (defaultOptions);
         const wsOptions = this.safeDict (this.options, 'ws', {});
         const wsInnerOptions = this.safeDict (wsOptions, 'options', {});
-        const originalHeaders = wsInnerOptions['headers'];
+        const originalHeaders = this.safeDict (wsInnerOptions, 'headers');
         const headers: Dict = {
             'X-BITOPRO-API': 'ccxt',
             'X-BITOPRO-APIKEY': this.apiKey,

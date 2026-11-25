@@ -897,7 +897,10 @@ class bitopro extends bitopro$1["default"] {
         };
         // we need to have a limit argument because "to" and "from" are required
         // supports slightly more than 75k candles atm, but limit here to avoid errors
-        const limitResolved = this.parseToInt((limit === undefined) ? 500 : Math.min(limit, 75000));
+        let limitResolved = 500;
+        if (limit !== undefined) {
+            limitResolved = this.parseToInt(Math.min(limit, 75000));
+        }
         const timeframeInSeconds = this.parseTimeframe(timeframe);
         let alignedSince = undefined;
         if (since === undefined) {
@@ -955,7 +958,7 @@ class bitopro extends bitopro$1["default"] {
             const candle = this.safeList(candles, i, []);
             if (candle[0] === timestamp) {
                 result.push(candle);
-                i = this.sum(i, 1);
+                i = i + 1;
             }
             else {
                 // set open, high, low to close
@@ -1037,7 +1040,10 @@ class bitopro extends bitopro$1["default"] {
             '4': 'canceled',
             '6': 'canceled',
         };
-        return (status === undefined) ? undefined : this.safeString(statuses, status);
+        if (status === undefined) {
+            return undefined;
+        }
+        return this.safeString(statuses, status);
     }
     parseOrder(order, market = undefined) {
         //

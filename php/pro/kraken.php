@@ -869,7 +869,7 @@ class kraken extends \ccxt\async\kraken {
         $symbolsNormalized = $this->market_symbols($symbols, null, false, true, false);
         $unsubMessageHashes = array();
         for ($i = 0; $i < count($symbolsNormalized); $i++) {
-            $unsubMessageHashes[] = 'unsubscribe:' . $this->get_message_hash('trade', null, $symbolsNormalized[$i]);
+            $unsubMessageHashes[] = 'unsubscribe:' . $this->get_message_hash('trade', null, $this->symbol($symbolsNormalized[$i]));
         }
         $request = array(
             'method' => 'unsubscribe',
@@ -1493,8 +1493,8 @@ class kraken extends \ccxt\async\kraken {
             $symbol = $this->safe_string($market, 'symbol');
         }
         $fee = null;
-        if (is_array($trade) && array_key_exists('fees' ?? '', $trade)) {
-            $fees = $this->safe_list($trade, 'fees', array());
+        $fees = $this->safe_list($trade, 'fees');
+        if ($fees !== null) {
             $firstFee = $this->safe_dict($fees, 0, array());
             $fee = array(
                 'cost' => $this->safe_number($firstFee, 'qty'),
@@ -1779,7 +1779,8 @@ class kraken extends \ccxt\async\kraken {
             $this->balance = array();
         }
         $this->balance[$type] = $this->safe_dict($this->balance, $type, array());
-        $this->balance[$type]['info'] = $message;
+        $balance = $this->safe_dict($this->balance, $type, array());
+        $balance['info'] = $message;
         $data = $this->safe_list($message, 'data', array());
         for ($i = 0; $i < count($data); $i++) {
             $currencyId = $this->safe_string($data[$i], 'asset');
@@ -1787,9 +1788,9 @@ class kraken extends \ccxt\async\kraken {
             $account = $this->account();
             $eq = $this->safe_string($data[$i], 'balance');
             $account['total'] = $eq;
-            $this->balance[$type][$code] = $account;
+            $balance[$code] = $account;
         }
-        $this->balance[$type] = $this->safe_balance($this->balance[$type]);
+        $this->balance[$type] = $this->safe_balance($balance);
         $channel = $this->safe_string($message, 'channel');
         $client->resolve($this->balance[$type], $channel);
     }
@@ -1875,7 +1876,7 @@ class kraken extends \ccxt\async\kraken {
         return $message;
     }
 
-    public function handle_error_message(Client $client, array $message): ?bool {
+    public function handle_error_message(Client $client, array $message): bool {
         //
         //     {
         //         "errorMessage": "Currency pair not in ISO 4217-A3 format foobar",

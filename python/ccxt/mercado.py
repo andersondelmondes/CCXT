@@ -6,7 +6,7 @@
 from ccxt.base.exchange import Exchange
 from ccxt.abstract.mercado import ImplicitAPI
 import hashlib
-from ccxt.base.types import Balances, Currency, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Ticker, Trade, Transaction
+from ccxt.base.types import Balances, Bool, Currency, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Ticker, Trade, Transaction
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import InvalidOrder
@@ -461,7 +461,6 @@ class mercado(Exchange, ImplicitAPI):
         timestamp = self.safe_timestamp_2(trade, 'date', 'executed_timestamp')
         marketResolved = self.safe_market(None, market)
         id = self.safe_string_2(trade, 'tid', 'operation_id')
-        type = None
         side = self.safe_string(trade, 'type')
         price = self.safe_string(trade, 'price')
         amount = self.safe_string_2(trade, 'amount', 'quantity')
@@ -479,7 +478,7 @@ class mercado(Exchange, ImplicitAPI):
             'datetime': self.iso8601(timestamp),
             'symbol': marketResolved['symbol'],
             'order': None,
-            'type': type,
+            'type': None,
             'side': side,
             'takerOrMaker': None,
             'price': price,
@@ -557,13 +556,14 @@ class mercado(Exchange, ImplicitAPI):
         if self.markets is None:
             self.load_markets()
         market = self.market(symbol)
+        precisionSymbol = self.safe_string(market, 'symbol', '')
         request = {
             'coin_pair': market['id'],
         }
         response = None
         if type == 'limit':
-            request['limit_price'] = self.price_to_precision(market['symbol'], price)
-            request['quantity'] = self.amount_to_precision(market['symbol'], amount)
+            request['limit_price'] = self.price_to_precision(precisionSymbol, price)
+            request['quantity'] = self.amount_to_precision(precisionSymbol, amount)
             if side == 'buy':
                 response = self.privatePostPlaceBuyOrder(self.extend(request, params))
             else:
@@ -574,10 +574,10 @@ class mercado(Exchange, ImplicitAPI):
                     raise InvalidOrder(self.id + ' createOrder() requires the price argument with market buy orders to calculate total order cost (amount to spend), where cost = amount * price. Supply a price argument to createOrder() call if you want the cost to be calculated for you from price and amount')
                 amountString = self.number_to_string(amount)
                 priceString = self.number_to_string(price)
-                request['cost'] = self.price_to_precision(market['symbol'], self.parse_to_numeric(Precise.string_mul(amountString, priceString)))
+                request['cost'] = self.price_to_precision(precisionSymbol, self.parse_to_numeric(Precise.string_mul(amountString, priceString)))
                 response = self.privatePostPlaceMarketBuyOrder(self.extend(request, params))
             else:
-                request['quantity'] = self.amount_to_precision(market['symbol'], amount)
+                request['quantity'] = self.amount_to_precision(precisionSymbol, amount)
                 response = self.privatePostPlaceMarketSellOrder(self.extend(request, params))
         # TODO: replace this with a call to parseOrder for unification
         return self.safe_order({
@@ -628,7 +628,7 @@ class mercado(Exchange, ImplicitAPI):
         #
         responseData = self.safe_dict(response, 'response_data', {})
         order = self.safe_dict(responseData, 'order', {})
-        return self.parse_order(order, market)
+        return self.parse_order(self.extend({}, order), market)
 
     def parse_order_status(self, status: Str) -> Str:
         statuses = {
@@ -684,7 +684,7 @@ class mercado(Exchange, ImplicitAPI):
         filled = self.safe_string(order, 'executed_quantity')
         lastTradeTimestamp = self.safe_timestamp(order, 'updated_timestamp')
         rawTrades = self.safe_list(order, 'operations', [])
-        symbol = marketResolved['symbol']
+        symbol = self.safe_string(marketResolved, 'symbol')
         return self.safe_order({
             'info': order,
             'id': id,
@@ -729,7 +729,7 @@ class mercado(Exchange, ImplicitAPI):
         response = self.privatePostGetOrder(self.extend(request, params))
         responseData = self.safe_dict(response, 'response_data', {})
         order = self.safe_dict(responseData, 'order')
-        return self.parse_order(order, market)
+        return self.parse_order(self.extend({}, order), market)
 
     def withdraw(self, code: str, amount: float, address: str, params: dict = {}) -> Transaction:
         """
@@ -987,7 +987,7 @@ class mercado(Exchange, ImplicitAPI):
             requestHeaders = None
         return {'url': url, 'method': method, 'body': requestBody, 'headers': requestHeaders}
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         if response is None:
             return None
         #

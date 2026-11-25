@@ -16,21 +16,21 @@ pub fn testModPow() {
     }));
     // intToBase16 emits uppercase hex in some target languages, assign before toLowerCase (php transpiler)
     // small values
-    let mut small: Value = exchange.mod_pow(exchange.convert_to_big_int(Value::Str("4".into())), exchange.convert_to_big_int(Value::Str("13".into())), exchange.convert_to_big_int(Value::Str("497".into())));
-    let mut smallHexRaw: String = exchange.int_to_base16(small, &[]);
-    let mut smallHex: String = smallHexRaw.to_lowercase();
+    let small: Value = exchange.mod_pow(exchange.convert_to_big_int(Value::Str("4".into())), exchange.convert_to_big_int(Value::Str("13".into())), exchange.convert_to_big_int(Value::Str("497".into())));
+    let smallHexRaw: String = exchange.int_to_base16(small, &[]);
+    let smallHex: String = smallHexRaw.to_lowercase();
     assert!(ccxt::runtime::is_true(&((smallHex == "1bd"))));
     // results above 2^64 must survive intToBase16 (the interactivebrokers diffie-hellman challenge is 2048-bit)
     // 2 ^ 100 mod (2 ^ 127 - 1) = 2 ^ 100
-    let mut modulus: Value = exchange.convert_to_big_int(Value::Str("0x7fffffffffffffffffffffffffffffff".into()));
-    let mut big: Value = exchange.mod_pow(exchange.convert_to_big_int(Value::Str("2".into())), exchange.convert_to_big_int(Value::Str("100".into())), modulus.clone());
-    let mut bigHexRaw: String = exchange.int_to_base16(big, &[]);
-    let mut bigHex: String = bigHexRaw.to_lowercase();
+    let modulus: Value = exchange.convert_to_big_int(Value::Str("0x7fffffffffffffffffffffffffffffff".into()));
+    let big: Value = exchange.mod_pow(exchange.convert_to_big_int(Value::Str("2".into())), exchange.convert_to_big_int(Value::Str("100".into())), modulus.clone());
+    let bigHexRaw: String = exchange.int_to_base16(big, &[]);
+    let bigHex: String = bigHexRaw.to_lowercase();
     assert!(ccxt::runtime::is_true(&((bigHex == "10000000000000000000000000"))));
     // 0xffffffffffffffffffff ^ 3 mod (2 ^ 127 - 1)
-    let mut base: Value = exchange.convert_to_big_int(Value::Str("0xffffffffffffffffffff".into()));
-    let mut cubed: Value = exchange.mod_pow(base, exchange.convert_to_big_int(Value::Str("3".into())), modulus);
-    let mut cubedHexRaw: String = exchange.int_to_base16(cubed, &[]);
-    let mut cubedHex: String = cubedHexRaw.to_lowercase();
+    let base: Value = exchange.convert_to_big_int(Value::Str("0xffffffffffffffffffff".into()));
+    let cubed: Value = exchange.mod_pow(base, exchange.convert_to_big_int(Value::Str("3".into())), modulus);
+    let cubedHexRaw: String = exchange.int_to_base16(cubed, &[]);
+    let cubedHex: String = cubedHexRaw.to_lowercase();
     assert!(ccxt::runtime::is_true(&((cubedHex == "200000002fffffffffff9ffffffff"))));
 }

@@ -94,7 +94,8 @@ class polymarket(ccxt.async_support.polymarket):
         hashesToCheck = messageHashes if (checkHashes is None) else checkHashes
         willSend = False
         for i in range(0, len(hashesToCheck)):
-            if not (hashesToCheck[i] in client.subscriptions):
+            hashToCheck = self.safe_string(hashesToCheck, i, '')
+            if not (hashToCheck in client.subscriptions):
                 willSend = True
         if not willSend:
             emptyRequest = {}
@@ -431,12 +432,12 @@ class polymarket(ccxt.async_support.polymarket):
         # the asyncapi spec describes the data field as an array of trade objects while typing it
         # as a single object, so both shapes are handled here
         #
-        data = self.safe_value(message, 'data')
+        dataList = self.safe_list(message, 'data')
         rows = []
-        if isinstance(data, list):
-            rows = data
+        if dataList is not None:
+            rows = dataList
         else:
-            rows.append(data)
+            rows.append(self.safe_value(message, 'data'))
         rowsLength = len(rows)
         if rowsLength == 0:
             return
@@ -678,11 +679,9 @@ class polymarket(ccxt.async_support.polymarket):
         #         }
         #     }
         #
-        data = self.safe_value(message, 'data')
+        data = self.safe_dict(message, 'data')
         rows = []
-        if isinstance(data, list):
-            rows = data
-        else:
+        if data is not None:
             rows.append(data)
         rowsLength = len(rows)
         if rowsLength == 0:
@@ -762,12 +761,12 @@ class polymarket(ccxt.async_support.polymarket):
         #         ]
         #     }
         #
-        data = self.safe_value(message, 'data')
+        dataList = self.safe_list(message, 'data')
         rows = []
-        if isinstance(data, list):
-            rows = data
+        if dataList is not None:
+            rows = dataList
         else:
-            rows.append(data)
+            rows.append(self.safe_value(message, 'data'))
         rowsLength = len(rows)
         if rowsLength == 0:
             return
@@ -1013,12 +1012,12 @@ class polymarket(ccxt.async_support.polymarket):
         if errorMessage is not None:
             error = ExchangeError(self.id + ' ' + errorMessage)
             for i in range(0, len(messageHashes)):
-                client.reject(error, messageHashes[i])
+                messageHash = messageHashes[i]
+                client.reject(error, messageHash)
                 # clearing the awaited hash lets a later call resend, and a
                 # failed subscribe must also clear the shared hash the base
                 # watch registered - a failed unsubscribe keeps the live
                 # subscription untouched instead
-                messageHash = messageHashes[i]
                 if messageHash in client.subscriptions:
                     del client.subscriptions[messageHash]
                 if action == 'sub':
@@ -1045,7 +1044,7 @@ class polymarket(ccxt.async_support.polymarket):
                         if timeframe in self.ohlcvs[symbol]:
                             del self.ohlcvs[symbol][timeframe]
             for i in range(0, len(messageHashes)):
-                self.clean_unsubscription(client, subMessageHashes[i], messageHashes[i])
+                self.clean_unsubscription(client, self.safe_string(subMessageHashes, i), messageHashes[i])
 
     def handle_message(self, client: Client, message: dict):
         ch = self.safe_string(message, 'ch')

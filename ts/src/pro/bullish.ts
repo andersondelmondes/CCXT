@@ -108,7 +108,9 @@ export default class bullish extends bullishRest {
         const cookies: Dict = {
             'JWT_COOKIE': token,
         };
-        this.options['ws']['cookies'] = cookies;
+        const wsDict = this.safeDict (this.options, 'ws', {});
+        wsDict['cookies'] = cookies;
+        this.options['ws'] = wsDict;
         const id = this.requestId ().toString ();
         const message: Dict = {
             'jsonrpc': '2.0',
@@ -348,8 +350,9 @@ export default class bullish extends bullishRest {
         };
         const parsed = this.parseOrderBook (snapshot, symbol, timestamp);
         const sequenceNumberRange = this.safeList (data, 'sequenceNumberRange', []);
-        if (sequenceNumberRange.length > 0) {
-            const lastIndex = sequenceNumberRange.length - 1;
+        const sequenceNumberRangeLength = sequenceNumberRange.length;
+        if (sequenceNumberRangeLength > 0) {
+            const lastIndex = sequenceNumberRangeLength - 1;
             parsed['nonce'] = this.safeInteger (sequenceNumberRange, lastIndex);
         }
         orderbook.reset (parsed);
@@ -404,7 +407,7 @@ export default class bullish extends bullishRest {
         if (tradingAccountId !== undefined) {
             request['tradingAccountId'] = tradingAccountId;
         }
-        const orders = await this.watchPrivate (messageHash, subscribeHash, request, paramsOmitted);
+        const orders: ArrayCacheBySymbolById = await this.watchPrivate (messageHash, subscribeHash, request, paramsOmitted);
         let limitResolved = limit;
         if (this.newUpdates) {
             limitResolved = orders.getLimit (symbolResolved, limit);
@@ -474,7 +477,7 @@ export default class bullish extends bullishRest {
             const orders = this.orders;
             const symbols: Dict = {};
             for (let i = 0; i < rawOrders.length; i++) {
-                const parsedOrder = this.parseOrder (rawOrders[i]);
+                const parsedOrder = this.parseOrder (this.safeDict (rawOrders, i, {}));
                 orders.append (parsedOrder);
                 const symbol = this.safeString (parsedOrder, 'symbol');
                 if (symbol !== undefined) {
@@ -523,7 +526,7 @@ export default class bullish extends bullishRest {
         if (tradingAccountId !== undefined) {
             request['tradingAccountId'] = tradingAccountId;
         }
-        const trades = await this.watchPrivate (messageHash, subscribeHash, request, paramsOmitted);
+        const trades: ArrayCacheBySymbolById = await this.watchPrivate (messageHash, subscribeHash, request, paramsOmitted);
         let limitResolved = limit;
         if (this.newUpdates) {
             limitResolved = trades.getLimit (symbolResolved, limit);
@@ -586,7 +589,7 @@ export default class bullish extends bullishRest {
             const trades = this.myTrades;
             const symbols: Dict = {};
             for (let i = 0; i < rawTrades.length; i++) {
-                const parsedTrade = this.parseTrade (rawTrades[i]);
+                const parsedTrade = this.parseTrade (this.safeDict (rawTrades, i, {}));
                 trades.append (parsedTrade);
                 const symbol = this.safeString (parsedTrade, 'symbol');
                 if (symbol !== undefined) {
@@ -684,11 +687,12 @@ export default class bullish extends bullishRest {
             const data = this.safeList (message, 'data', []);
             const parsed = this.parseBalanceList (data);
             const parsedKeys = Object.keys (parsed);
+            const balance = this.safeDict (this.balance, tradingAccountId, {});
             for (let i = 0; i < parsedKeys.length; i++) {
                 const parsedKey = parsedKeys[i];
-                this.balance[tradingAccountId][parsedKey] = parsed[parsedKey];
+                balance[parsedKey] = parsed[parsedKey];
             }
-            this.balance[tradingAccountId] = this.safeBalance (this.balance[tradingAccountId]);
+            this.balance[tradingAccountId] = this.safeBalance (balance);
         } else {
             const data = this.safeDict (message, 'data', {});
             const assetId = this.safeString (data, 'assetSymbol');
@@ -696,11 +700,12 @@ export default class bullish extends bullishRest {
             account['total'] = this.safeString (data, 'availableQuantity');
             account['used'] = this.safeString (data, 'lockedQuantity');
             const code = this.safeCurrencyCode (assetId);
+            const deltaBalance: Dict = this.safeDict (this.balance, tradingAccountId, {});
+            deltaBalance['info'] = message;
             if ((tradingAccountId !== undefined) && (code !== undefined)) {
-                this.balance[tradingAccountId][code] = account;
+                deltaBalance[code] = account;
             }
-            this.balance[tradingAccountId]['info'] = message;
-            this.balance[tradingAccountId] = this.safeBalance (this.balance[tradingAccountId]);
+            this.balance[tradingAccountId] = this.safeBalance (deltaBalance);
         }
         const messageHash = 'balance';
         const tradingAccountIdHash = '::' + tradingAccountId;
@@ -729,8 +734,6 @@ export default class bullish extends bullishRest {
         let symbolsNormalized = symbols;
         if (hasSymbols) {
             symbolsNormalized = this.marketSymbols (symbols);
-        }
-        if (hasSymbols && (symbolsNormalized !== undefined)) {
             messageHash += '::' + symbolsNormalized.join (',');
         }
         const request: Dict = {
@@ -761,7 +764,7 @@ export default class bullish extends bullishRest {
         const positions = this.positions;
         const newPositions: List = [];
         for (let i = 0; i < rawPositions.length; i++) {
-            const position = this.parsePosition (rawPositions[i]);
+            const position = this.parsePosition (this.safeDict (rawPositions, i, {}));
             positions.append (position);
             newPositions.push (position);
         }
@@ -779,7 +782,7 @@ export default class bullish extends bullishRest {
         client.resolve (positions, 'positions');
     }
 
-    handleErrorMessage (client: Client, message: Dict) {
+    handleErrorMessage (client: Client, message: Dict): boolean {
         //
         //     {
         //         "data": {
@@ -802,6 +805,7 @@ export default class bullish extends bullishRest {
         } catch (e) {
             client.reject (e);
         }
+        return false;
     }
 
     override handleMessage (client: Client, message: Dict) {

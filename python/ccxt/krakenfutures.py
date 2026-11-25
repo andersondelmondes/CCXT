@@ -6,7 +6,7 @@
 from ccxt.base.exchange import Exchange
 from ccxt.abstract.krakenfutures import ImplicitAPI
 import hashlib
-from ccxt.base.types import Balances, Currency, FundingHistory, Int, LedgerEntry, Leverage, Leverages, LeverageTier, LeverageTiers, Market, Num, Order, OrderBook, OrderRequest, OrderSide, OrderType, Position, Str, Strings, Ticker, Tickers, FundingRate, FundingRates, Trade, TradingFeeInterface, TradingFees, FundingRateHistory, TransferEntry
+from ccxt.base.types import Balances, Bool, Currency, FundingHistory, Int, LedgerEntry, Leverage, Leverages, LeverageTier, LeverageTiers, Market, Num, Order, OrderBook, OrderRequest, OrderSide, OrderType, Position, Str, Strings, Ticker, Tickers, FundingRate, FundingRates, Trade, TradingFeeInterface, TradingFees, FundingRateHistory, TransferEntry
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
@@ -482,7 +482,8 @@ class krakenfutures(Exchange, ImplicitAPI):
             symbol = id
             split = id.split('_')
             splitMarket = self.safe_string(split, 1, '')
-            baseId = splitMarket[0:len(splitMarket) - 3]
+            baseIdLength = len(splitMarket) - 3
+            baseId = splitMarket[0:baseIdLength]
             quoteId = 'usd'  # always USD
             base = self.safe_currency_code(baseId)
             quote = self.safe_currency_code(quoteId)
@@ -962,7 +963,7 @@ class krakenfutures(Exchange, ImplicitAPI):
         #        "more_candles": true
         #    }
         #
-        candles = self.safe_list(response, 'candles')
+        candles = self.safe_list(response, 'candles', [])
         return self.parse_ohlcvs(candles, market, timeframe, since, limitResolved)
 
     def parse_ohlcv(self, ohlcv: object, market: Market = None) -> list:
@@ -1403,10 +1404,10 @@ class krakenfutures(Exchange, ImplicitAPI):
         #         }
         #     }
         #
-        sendStatus = self.safe_value(response, 'sendStatus')
+        sendStatus = self.safe_dict(response, 'sendStatus')
         status = self.safe_string(sendStatus, 'status')
         self.verify_order_action_success(status, 'createOrder', ['filled'])
-        return self.parse_order(sendStatus, market)
+        return self.parse_order(self.extend({}, sendStatus), market)
 
     def create_orders(self, orders: list[OrderRequest], params: dict = {}) -> list[Order]:
         """
@@ -1426,8 +1427,8 @@ class krakenfutures(Exchange, ImplicitAPI):
             marketId = self.safe_string(rawOrder, 'symbol')
             type = self.safe_string(rawOrder, 'type')
             side = self.safe_string(rawOrder, 'side')
-            amount = self.safe_value(rawOrder, 'amount')
-            price = self.safe_value(rawOrder, 'price')
+            amount = self.safe_number(rawOrder, 'amount')
+            price = self.safe_number(rawOrder, 'price')
             orderParams = self.safe_dict(rawOrder, 'params', {})
             extendedParams = self.extend(orderParams, params)  # the request does not accept extra params since it's a list, so we're extending each order with the common params
             if not ('order_tag' in extendedParams):
@@ -1504,12 +1505,14 @@ class krakenfutures(Exchange, ImplicitAPI):
         """
         if self.markets is None:
             self.load_markets()
-        response = self.privatePostCancelorder(self.extend({'order_id': id}, params))
-        status = self.safe_string(self.safe_dict(response, 'cancelStatus', {}), 'status')
+        request = {'order_id': id}
+        response = self.privatePostCancelorder(self.extend(request, params))
+        cancelStatus = self.safe_dict(response, 'cancelStatus')
+        status = self.safe_string(cancelStatus, 'status')
         self.verify_order_action_success(status, 'cancelOrder')
         order = {}
-        if 'cancelStatus' in response:
-            order = self.parse_order(response['cancelStatus'])
+        if cancelStatus is not None:
+            order = self.parse_order(cancelStatus)
         return self.extend({'info': response}, order)
 
     def cancel_orders(self, ids: list[str], symbol: Str = None, params: dict = {}) -> list[Order]:
@@ -1835,7 +1838,7 @@ class krakenfutures(Exchange, ImplicitAPI):
         }
         return self.safe_string(typesMap, orderType, orderType)
 
-    def verify_order_action_success(self, status: object, method: str, omit: list[str] = []):
+    def verify_order_action_success(self, status: Str, method: str, omit: list[str] = []):
         errors = {
             'invalidOrderType': InvalidOrder,
             'invalidSide': InvalidOrder,
@@ -1858,8 +1861,9 @@ class krakenfutures(Exchange, ImplicitAPI):
             'filled': OrderNotFound,
             'notFound': OrderNotFound,
         }
-        if (status in errors) and not self.in_array(status, omit):
-            raise errors[status](self.id + ': ' + method + ' failed due to ' + status)
+        if status is not None:
+            if (status in errors) and not self.in_array(status, omit):
+                raise errors[status](self.id + ': ' + method + ' failed due to ' + status)
 
     def parse_order_status(self, status: Str) -> Str:
         statuses = {
@@ -2317,14 +2321,17 @@ class krakenfutures(Exchange, ImplicitAPI):
             amount = Precise.string_add(filled, remaining)
         cost = None
         if (filled is not None) and (marketResolved is not None):
-            whichPrice = price
+            isLinear = self.safe_bool(marketResolved, 'linear', False)
             if average is not None:
-                whichPrice = average
-            if whichPrice is not None:
-                if self.safe_bool(marketResolved, 'linear', False):
-                    cost = Precise.string_mul(filled, whichPrice)  # in quote
+                if isLinear:
+                    cost = Precise.string_mul(filled, average)  # in quote
                 else:
-                    cost = Precise.string_div(filled, whichPrice)  # in base
+                    cost = Precise.string_div(filled, average)  # in base
+            elif price is not None:
+                if isLinear:
+                    cost = Precise.string_mul(filled, price)  # in quote
+                else:
+                    cost = Precise.string_div(filled, price)  # in base
         id = self.safe_string_2(order, 'order_id', 'orderId')
         if id is None:
             id = self.safe_string_2(details, 'orderId', 'uid')
@@ -3594,7 +3601,7 @@ class krakenfutures(Exchange, ImplicitAPI):
             'shortLeverage': leverageValue,
         }
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         if response is None:
             return None
         if code == 429:

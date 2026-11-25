@@ -195,11 +195,11 @@ class mexc extends \ccxt\async\mexc {
         $symbol = $this->safe_string($market, 'symbol', '');
         if ($this->safe_bool($market, 'spot', false)) {
             $this->handle_bid_ask($client, $message); // the bids-asks channel is spot only
-            $ticker = $this->parse_ws_ticker($rawTicker, $market);
+            $ticker = $this->parse_ws_ticker($this->safe_dict_n($message, array( 'd', 'data', 'publicAggreBookTicker' ), array()), $market);
             $ticker['timestamp'] = $timestamp;
             $ticker['datetime'] = $this->iso8601($timestamp);
         } elseif ($rawTicker !== null) {
-            $ticker = $this->parse_ticker($rawTicker, $market);
+            $ticker = $this->parse_ticker($this->extend(array(), $rawTicker), $market);
         } else {
             return;
         }
@@ -357,11 +357,11 @@ class mexc extends \ccxt\async\mexc {
         $topic = $messageHashPrefix . 'ticker';
         $result = array();
         for ($i = 0; $i < count($data); $i++) {
-            $entry = $data[$i];
+            $entry = $this->safe_dict($data, $i, array());
             if ($isSpot === true) {
                 $ticker = $this->parse_ws_ticker($entry, $market);
             } else {
-                $ticker = $this->parse_ticker($entry);
+                $ticker = $this->parse_ticker($this->safe_dict($data, $i, array()));
             }
             $symbol = $this->safe_string($ticker, 'symbol');
             if ($symbol !== null) {
@@ -455,8 +455,12 @@ class mexc extends \ccxt\async\mexc {
         if ($symbolsNormalized === null) {
             throw new ArgumentsRequired($this->id . ' watchBidsAsks required symbols argument');
         }
-        $markets = $this->require_value($this->markets_for_symbols($symbolsNormalized), 'watchBidsAsks() markets is required');
-        list($marketType, $paramsMarketType) = $this->handle_market_type_and_params('watchBidsAsks', $markets[0], $params);
+        $symbolsLength = count($symbolsNormalized);
+        $firstMarket = null;
+        if ($symbolsLength > 0) {
+            $firstMarket = $this->market($symbolsNormalized[0]);
+        }
+        list($marketType, $paramsMarketType) = $this->handle_market_type_and_params('watchBidsAsks', $firstMarket, $params);
         $isSpot = $marketType === 'spot';
         if (!$isSpot) {
             throw new NotSupported($this->id . ' watchBidsAsks only support spot market');
@@ -651,7 +655,8 @@ class mexc extends \ccxt\async\mexc {
         $messageHash = 'candles:' . $symbolValue . ':' . $timeframe;
         $ohlcv = null;
         if ($this->safe_bool($market, 'spot', false)) {
-            $spotChannel = 'spot@public.kline.v3.api.pb@' . $this->safe_string($market, 'id', '') . '@' . $timeframeId;
+            $spotTimeframeId = $this->safe_string($timeframes, $timeframe, '');
+            $spotChannel = 'spot@public.kline.v3.api.pb@' . $this->safe_string($market, 'id', '') . '@' . $spotTimeframeId;
             $ohlcv = Async\await($this->watch_spot_public($spotChannel, $messageHash, $params));
         } else {
             $channel = 'sub.kline';
@@ -740,7 +745,7 @@ class mexc extends \ccxt\async\mexc {
             $market = $this->safe_market($this->symbol($this->safe_string($message, 'symbol')));
             $data = $this->safe_dict($message, 'publicSpotKline', array());
             $timeframeId = $this->safe_string($data, 'interval');
-            $timeframe = $this->find_timeframe($timeframeId, $this->options['timeframes']);
+            $timeframe = $this->find_timeframe($timeframeId, $this->safe_dict($this->options, 'timeframes'));
             $parsed = $this->parse_ws_ohlcv($data, $market);
         } else {
             $d = $this->safe_dict_2($message, 'd', 'data', array());
@@ -1162,7 +1167,7 @@ class mexc extends \ccxt\async\mexc {
             if ($this->safe_bool($market, 'spot', false)) {
                 $parsedTrade = $this->parse_ws_trade($trades[$j], $market);
             } else {
-                $parsedTrade = $this->parse_trade($trades[$j], $market);
+                $parsedTrade = $this->parse_trade($this->safe_dict($trades, $j, array()), $market);
             }
             $stored->append($parsedTrade);
         }
@@ -1258,7 +1263,7 @@ class mexc extends \ccxt\async\mexc {
         if ($this->safe_bool($market, 'spot', false)) {
             $trade = $this->parse_ws_trade($data, $market);
         } elseif ($data !== null) {
-            $trade = $this->parse_trade($data, $market);
+            $trade = $this->parse_trade($this->extend(array(), $data), $market);
         } else {
             return;
         }
@@ -1492,7 +1497,7 @@ class mexc extends \ccxt\async\mexc {
                 $parsed['lastTradeTimestamp'] = $sendTime;
             }
         } elseif ($data !== null) {
-            $parsed = $this->parse_order($data, $market);
+            $parsed = $this->parse_order($this->extend(array(), $data), $market);
         } else {
             return;
         }
@@ -1732,17 +1737,18 @@ class mexc extends \ccxt\async\mexc {
             $this->balance[$type] = array();
         }
         $this->balance[$type]['info'] = $data;
-        $this->balance[$type]['timestamp'] = $timestamp;
-        $this->balance[$type]['datetime'] = $this->iso8601($timestamp);
+        $balance = $this->safe_dict($this->balance, $type, array());
+        $balance['timestamp'] = $timestamp;
+        $balance['datetime'] = $this->iso8601($timestamp);
         $currencyId = $this->safe_string_2($data, 'currency', 'vcoinName');
         $code = $this->safe_currency_code($currencyId);
         $account = $this->account();
         $account['free'] = $this->safe_string_2($data, 'balanceAmount', 'availableBalance');
         $account['used'] = $this->safe_string_2($data, 'frozenBalance', 'frozenAmount');
         if ($code !== null) {
-            $this->balance[$type][$code] = $account;
+            $balance[$code] = $account;
         }
-        $this->balance[$type] = $this->safe_balance($this->balance[$type]);
+        $this->balance[$type] = $this->safe_balance($balance);
         $client->resolve($this->balance[$type], $messageHash);
     }
 
@@ -1791,7 +1797,6 @@ class mexc extends \ccxt\async\mexc {
         }
         $market = $this->market($symbol);
         $messageHash = 'unsubscribe:fundingRate:' . $market['symbol'];
-        $url = null;
         $channel = 'unsub.funding.rate';
         $requestParams = array(
             'symbol' => $market['id'],
@@ -1944,8 +1949,12 @@ class mexc extends \ccxt\async\mexc {
         if ($symbolsNormalized === null) {
             throw new ArgumentsRequired($this->id . ' watchBidsAsks required symbols argument');
         }
-        $markets = $this->require_value($this->markets_for_symbols($symbolsNormalized), 'unWatchBidsAsks() markets is required');
-        list($marketType, $paramsMarketType) = $this->handle_market_type_and_params('watchBidsAsks', $markets[0], $params);
+        $symbolsLength = count($symbolsNormalized);
+        $firstMarket = null;
+        if ($symbolsLength > 0) {
+            $firstMarket = $this->market($symbolsNormalized[0]);
+        }
+        list($marketType, $paramsMarketType) = $this->handle_market_type_and_params('watchBidsAsks', $firstMarket, $params);
         $isSpot = $marketType === 'spot';
         if (!$isSpot) {
             throw new NotSupported($this->id . ' watchBidsAsks only support spot market');
@@ -1993,7 +2002,8 @@ class mexc extends \ccxt\async\mexc {
         $url = null;
         if ($this->safe_bool($market, 'spot', false)) {
             $url = $this->urls['api']['ws']['spot'];
-            $channel = 'spot@public.kline.v3.api.pb@' . $this->safe_string($market, 'id', '') . '@' . $timeframeId;
+            $spotTimeframeId = $this->safe_string($timeframes, $timeframe, '');
+            $channel = 'spot@public.kline.v3.api.pb@' . $this->safe_string($market, 'id', '') . '@' . $spotTimeframeId;
             $params['unsubscribed'] = true;
             $this->spawn(array($this, 'watch_spot_public'), $channel, $messageHash, $params);
         } else {
@@ -2147,7 +2157,8 @@ class mexc extends \ccxt\async\mexc {
         // spot ws client - the first caller fetches the listenKey, concurrent
         // callers wait on the future and resume when the listenKey is ready,
         // otherwise the user-data subscriptions would be split across two connections
-        $client = $this->client($this->urls['api']['ws']['spot']);
+        $spotUrl = $this->urls['api']['ws']['spot'];
+        $client = $this->client($spotUrl);
         $messageHash = 'authenticate:listenKey';
         $isFetching = $this->safe_bool($this->options, 'listenKeyFetching', false);
         if ($isFetching) {

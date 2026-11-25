@@ -691,7 +691,7 @@ export default class gemini extends Exchange {
         const fetchUsdtMarkets = this.safeList(this.options, 'fetchUsdtMarkets', []);
         const result = [];
         for (let i = 0; i < fetchUsdtMarkets.length; i++) {
-            const marketId = fetchUsdtMarkets[i];
+            const marketId = this.safeString(fetchUsdtMarkets, i, '');
             const request = {
                 'symbol': marketId,
             };
@@ -718,7 +718,7 @@ export default class gemini extends Exchange {
         const brokenPairs = this.safeList(this.options, 'brokenPairs', []);
         const marketIds = [];
         let allMarketIds = [];
-        if (Array.isArray(marketIdsRaw)) {
+        if (marketIdsRaw !== undefined) {
             allMarketIds = marketIdsRaw;
         }
         for (let i = 0; i < allMarketIds.length; i++) {
@@ -729,7 +729,7 @@ export default class gemini extends Exchange {
         if (this.safeBool(options, 'fetchDetailsForAllSymbols', false)) {
             const promises = [];
             for (let i = 0; i < marketIds.length; i++) {
-                const marketId = marketIds[i];
+                const marketId = this.safeString(marketIds, i, '');
                 const request = {
                     'symbol': marketId,
                 };
@@ -761,7 +761,7 @@ export default class gemini extends Exchange {
             if (tradingPairs !== undefined) {
                 const indexedTradingPairs = this.indexBy(tradingPairs, 0);
                 for (let i = 0; i < marketIds.length; i++) {
-                    const marketId = marketIds[i];
+                    const marketId = this.safeString(marketIds, i, '');
                     const pairInfo = this.safeList(indexedTradingPairs, marketId.toUpperCase());
                     if (pairInfo !== undefined && !this.inArray(marketId, brokenPairs)) {
                         const parsed = this.parseMarket(pairInfo);
@@ -1023,6 +1023,7 @@ export default class gemini extends Exchange {
         return this.parseTicker(response, market);
     }
     async fetchTickerV1AndV2(symbol, params = {}) {
+        await this.loadMarkets();
         const tickerPromiseA = this.fetchTickerV1(symbol, params);
         const tickerPromiseB = this.fetchTickerV2(symbol, params);
         const [tickerA, tickerB] = await Promise.all([tickerPromiseA, tickerPromiseB]);
@@ -1104,7 +1105,7 @@ export default class gemini extends Exchange {
         let base = undefined;
         let quote = undefined;
         if ((marketId !== undefined) && (marketResolved === undefined)) {
-            const idLength = marketId.length - 0;
+            const idLength = marketId.length;
             if (idLength === 7) {
                 baseId = marketId.slice(0, 4);
                 quoteId = marketId.slice(4, 7);
@@ -1503,7 +1504,6 @@ export default class gemini extends Exchange {
         else {
             type = this.safeString(order, 'type');
         }
-        const fee = undefined;
         const marketId = this.safeString(order, 'symbol');
         const symbol = this.safeSymbol(marketId, market);
         const id = this.safeString(order, 'order_id');
@@ -1545,7 +1545,7 @@ export default class gemini extends Exchange {
             'amount': amount,
             'filled': filled,
             'remaining': remaining,
-            'fee': fee,
+            'fee': undefined,
             'trades': undefined,
         }, market);
     }
@@ -2017,7 +2017,7 @@ export default class gemini extends Exchange {
             await this.loadMarkets();
         }
         const currency = this.currency(code);
-        const codeValue = currency['code'];
+        const codeValue = this.safeString(currency, 'code', '');
         const [networkCode, paramsNetworkCode] = this.handleNetworkCodeAndParams(params);
         if (networkCode === undefined) {
             throw new ArgumentsRequired(this.id + ' fetchDepositAddresses() requires a network parameter');
@@ -2161,11 +2161,7 @@ export default class gemini extends Exchange {
         //         [1591514400000,0.02503,0.02503,0.02503,0.02503,0],
         //     ]
         //
-        let candles = [];
-        if (Array.isArray(response)) {
-            candles = response;
-        }
-        return this.parseOHLCVs(candles, market, timeframe, since, limit);
+        return this.parseOHLCVs(response, market, timeframe, since, limit);
     }
     /**
      * @method

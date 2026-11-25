@@ -99,7 +99,8 @@ class polymarket extends \ccxt\async\polymarket {
         $hashesToCheck = ($checkHashes === null) ? $messageHashes : $checkHashes;
         $willSend = false;
         for ($i = 0; $i < count($hashesToCheck); $i++) {
-            if (!(is_array($client->subscriptions) && array_key_exists($hashesToCheck[$i] ?? '', $client->subscriptions))) {
+            $hashToCheck = $this->safe_string($hashesToCheck, $i, '');
+            if (!(is_array($client->subscriptions) && array_key_exists($hashToCheck ?? '', $client->subscriptions))) {
                 $willSend = true;
             }
         }
@@ -490,12 +491,12 @@ class polymarket extends \ccxt\async\polymarket {
         // the asyncapi spec describes the data field as an array of trade objects while typing it
         // as a single object, so both shapes are handled here
         //
-        $data = $this->safe_value($message, 'data');
+        $dataList = $this->safe_list($message, 'data');
         $rows = array();
-        if ((gettype($data) === 'array' && array_keys($data) === array_keys(array_keys($data)))) {
-            $rows = $data;
+        if ($dataList !== null) {
+            $rows = $dataList;
         } else {
-            $rows[] = $data;
+            $rows[] = $this->safe_value($message, 'data');
         }
         $rowsLength = count($rows);
         if ($rowsLength === 0) {
@@ -775,11 +776,9 @@ class polymarket extends \ccxt\async\polymarket {
         //         }
         //     }
         //
-        $data = $this->safe_value($message, 'data');
+        $data = $this->safe_dict($message, 'data');
         $rows = array();
-        if ((gettype($data) === 'array' && array_keys($data) === array_keys(array_keys($data)))) {
-            $rows = $data;
-        } else {
+        if ($data !== null) {
             $rows[] = $data;
         }
         $rowsLength = count($rows);
@@ -873,12 +872,12 @@ class polymarket extends \ccxt\async\polymarket {
         //         ]
         //     }
         //
-        $data = $this->safe_value($message, 'data');
+        $dataList = $this->safe_list($message, 'data');
         $rows = array();
-        if ((gettype($data) === 'array' && array_keys($data) === array_keys(array_keys($data)))) {
-            $rows = $data;
+        if ($dataList !== null) {
+            $rows = $dataList;
         } else {
-            $rows[] = $data;
+            $rows[] = $this->safe_value($message, 'data');
         }
         $rowsLength = count($rows);
         if ($rowsLength === 0) {
@@ -1179,12 +1178,12 @@ class polymarket extends \ccxt\async\polymarket {
         if ($errorMessage !== null) {
             $error = new ExchangeError($this->id . ' ' . $errorMessage);
             for ($i = 0; $i < count($messageHashes); $i++) {
-                $client->reject($error, $messageHashes[$i]);
+                $messageHash = $messageHashes[$i];
+                $client->reject($error, $messageHash);
                 // clearing the awaited hash lets a later call resend, and a
                 // failed subscribe must also clear the shared hash the base
                 // watch registered - a failed unsubscribe keeps the live
                 // subscription untouched instead
-                $messageHash = $messageHashes[$i];
                 if (is_array($client->subscriptions) && array_key_exists($messageHash ?? '', $client->subscriptions)) {
                     unset($client->subscriptions[$messageHash]);
                 }
@@ -1223,7 +1222,7 @@ class polymarket extends \ccxt\async\polymarket {
                 }
             }
             for ($i = 0; $i < count($messageHashes); $i++) {
-                $this->clean_unsubscription($client, $subMessageHashes[$i], $messageHashes[$i]);
+                $this->clean_unsubscription($client, $this->safe_string($subMessageHashes, $i), $messageHashes[$i]);
             }
         }
     }

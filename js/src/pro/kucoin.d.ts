@@ -1,7 +1,8 @@
 import kucoinRest from '../kucoin.js';
-import type { Balances, Bool, Dict, FundingRate, Int, Market, NullableDict, OHLCV, Order, OrderBook, Position, Str, Strings, Ticker, Tickers, Trade, int } from '../base/types.js';
+import type { Balances, Dict, FundingRate, Int, Market, NullableDict, OHLCV, Order, OrderBook, Position, Str, Strings, Ticker, Tickers, Trade, int } from '../base/types.js';
 import Client from '../base/ws/Client.js';
 import type { WsOrderBook } from '../base/ws/OrderBook.js';
+import type { OrderBookSide } from '../base/ws/OrderBookSide.js';
 export default class kucoin extends kucoinRest {
     describe(): Dict;
     negotiate(privateChannel: boolean, isFuturesMethod?: boolean, params?: Dict): Promise<string>;
@@ -237,7 +238,7 @@ export default class kucoin extends kucoinRest {
     handleUtaOrderBook(client: Client, message: Dict): void;
     getCacheIndex(orderbook: NullableDict, cache: any[]): number;
     handleBookDelta(orderbook: WsOrderBook, delta: any): void;
-    handleBidAsks(bookSide: any, bidAsks: any[]): void;
+    handleBidAsks(bookSide: OrderBookSide, bidAsks: any[]): void;
     handleOrderBookSubscription(client: Client, message: Dict, subscription: Dict): void;
     handleSubscriptionStatus(client: Client, message: Dict): void;
     handleSystemStatus(client: Client, message: Dict): Dict;
@@ -262,7 +263,7 @@ export default class kucoin extends kucoinRest {
     watchOrders(symbol?: Str, since?: Int, limit?: Int, params?: Dict): Promise<Order[]>;
     getOrdersMessageHashSuffix(topic: Str): string;
     parseWsOrderStatus(status: Str): Str;
-    parseWsOrder(order: any, market?: Market): Order;
+    parseWsOrder(order: Dict, market?: Market): Order;
     parseWsUtaOrder(order: Dict, market?: Market): Order;
     handleOrder(client: Client, message: Dict): void;
     handleUtaOrder(client: Client, message: Dict): void;
@@ -379,7 +380,7 @@ export default class kucoin extends kucoinRest {
     handleSubject(client: Client, message: Dict): void;
     ping(client: Client): Dict;
     handlePong(client: Client, message: Dict): void;
-    handleErrorMessage(client: Client, message: Dict): Bool;
+    handleErrorMessage(client: Client, message: Dict): boolean;
     handleMessage(client: Client, message: Dict): void;
-    getMessageHash(elementName: Str, symbol?: Str): string;
+    getMessageHash(elementName: string, symbol?: Str): string;
 }

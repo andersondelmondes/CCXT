@@ -59,23 +59,23 @@ fn build_book(kind: &str, snapshot: Value, depth: Value) -> Value {
         BOOK_COUNTED => (SIDE_COUNTED, true),
         _            => (SIDE_PLAIN,   true),
     };
-    let bids_deltas = crate::get_value(&snapshot, &Value::Str("bids".into()));
-    let asks_deltas = crate::get_value(&snapshot, &Value::Str("asks".into()));
-    let bids = new_side(side_kind, /*is_bid=*/ true,  max_depth, &bids_deltas);
-    let asks = new_side(side_kind, /*is_bid=*/ false, max_depth, &asks_deltas);
+    let bids_deltas = snapshot.at("bids");
+    let asks_deltas = snapshot.at("asks");
+    let bids = new_side(side_kind, /*is_bid=*/ true,  max_depth, bids_deltas);
+    let asks = new_side(side_kind, /*is_bid=*/ false, max_depth, asks_deltas);
 
-    let timestamp = match crate::get_value(&snapshot, &Value::Str("timestamp".into())) {
+    let timestamp = match *snapshot.at("timestamp") {
         Value::Int(n)   => Some(n),
         Value::Float(f) => Some(f as i64),
         _ => None,
     };
     let datetime = timestamp.and_then(iso8601_millis);
-    let nonce = match crate::get_value(&snapshot, &Value::Str("nonce".into())) {
+    let nonce = match *snapshot.at("nonce") {
         Value::Int(n)   => Value::Int(n),
         Value::Float(f) => Value::Int(f as i64),
         _ => Value::Null,
     };
-    let symbol = crate::get_value(&snapshot, &Value::Str("symbol".into()));
+    let symbol = snapshot.at("symbol").to_owned();
 
     // Scalar meta lives in the shared book store (keyed by `__book_id`) so WS
     // handlers that mutate a cloned book — okx's seqId nonce — propagate.
@@ -228,8 +228,8 @@ mod side_tests {
         }
         side.store(Value::Float(9.5), Value::Float(4.0));
         side.store_array(level(9.0, 0.0));
-        assert_eq!(crate::runtime::get_array_length(&book.book_field("bids")), Value::Int(2));
-        assert_eq!(crate::value::get_value(&book.book_field("bids"), &Value::Int(1)), level(9.5, 4.0));
+        assert_eq!(Side::of(book.book_field("bids")).length(), Value::Int(2));
+        assert_eq!(Side::of(book.book_field("bids")).level(&Value::Int(1)), level(9.5, 4.0));
         let mut none = Side::of(Value::Null);
         none.store(Value::Int(1), Value::Int(1));
         assert_eq!(Value::from(none), Value::Null);

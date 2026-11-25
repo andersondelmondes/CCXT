@@ -470,7 +470,6 @@ class mercado extends mercado$1["default"] {
         const timestamp = this.safeTimestamp2(trade, 'date', 'executed_timestamp');
         const marketResolved = this.safeMarket(undefined, market);
         const id = this.safeString2(trade, 'tid', 'operation_id');
-        const type = undefined;
         const side = this.safeString(trade, 'type');
         const price = this.safeString(trade, 'price');
         const amount = this.safeString2(trade, 'amount', 'quantity');
@@ -489,7 +488,7 @@ class mercado extends mercado$1["default"] {
             'datetime': this.iso8601(timestamp),
             'symbol': marketResolved['symbol'],
             'order': undefined,
-            'type': type,
+            'type': undefined,
             'side': side,
             'takerOrMaker': undefined,
             'price': price,
@@ -583,13 +582,14 @@ class mercado extends mercado$1["default"] {
             await this.loadMarkets();
         }
         const market = this.market(symbol);
+        const precisionSymbol = this.safeString(market, 'symbol', '');
         const request = {
             'coin_pair': market['id'],
         };
         let response = undefined;
         if (type === 'limit') {
-            request['limit_price'] = this.priceToPrecision(market['symbol'], price);
-            request['quantity'] = this.amountToPrecision(market['symbol'], amount);
+            request['limit_price'] = this.priceToPrecision(precisionSymbol, price);
+            request['quantity'] = this.amountToPrecision(precisionSymbol, amount);
             if (side === 'buy') {
                 response = await this.privatePostPlaceBuyOrder(this.extend(request, params));
             }
@@ -604,11 +604,11 @@ class mercado extends mercado$1["default"] {
                 }
                 const amountString = this.numberToString(amount);
                 const priceString = this.numberToString(price);
-                request['cost'] = this.priceToPrecision(market['symbol'], this.parseToNumeric(Precise["default"].stringMul(amountString, priceString)));
+                request['cost'] = this.priceToPrecision(precisionSymbol, this.parseToNumeric(Precise["default"].stringMul(amountString, priceString)));
                 response = await this.privatePostPlaceMarketBuyOrder(this.extend(request, params));
             }
             else {
-                request['quantity'] = this.amountToPrecision(market['symbol'], amount);
+                request['quantity'] = this.amountToPrecision(precisionSymbol, amount);
                 response = await this.privatePostPlaceMarketSellOrder(this.extend(request, params));
             }
         }
@@ -665,7 +665,7 @@ class mercado extends mercado$1["default"] {
         //
         const responseData = this.safeDict(response, 'response_data', {});
         const order = this.safeDict(responseData, 'order', {});
-        return this.parseOrder(order, market);
+        return this.parseOrder(this.extend({}, order), market);
     }
     parseOrderStatus(status) {
         const statuses = {
@@ -722,7 +722,7 @@ class mercado extends mercado$1["default"] {
         const filled = this.safeString(order, 'executed_quantity');
         const lastTradeTimestamp = this.safeTimestamp(order, 'updated_timestamp');
         const rawTrades = this.safeList(order, 'operations', []);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString(marketResolved, 'symbol');
         return this.safeOrder({
             'info': order,
             'id': id,
@@ -771,7 +771,7 @@ class mercado extends mercado$1["default"] {
         const response = await this.privatePostGetOrder(this.extend(request, params));
         const responseData = this.safeDict(response, 'response_data', {});
         const order = this.safeDict(responseData, 'order');
-        return this.parseOrder(order, market);
+        return this.parseOrder(this.extend({}, order), market);
     }
     /**
      * @method

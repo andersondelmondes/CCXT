@@ -138,7 +138,7 @@ public partial class coinone : ccxt.coinone
         client.resolve(orderbook, messageHash);
     }
 
-    public override void handleDelta(object bookside, object delta)
+    public override void handleDelta(ccxt.pro.IOrderBookSide bookside, object delta)
     {
         List<object> bidAsk = this.parseOrderBookBidAsk(delta, "price", "qty");
         (bookside as IOrderBookSide).storeArray(bidAsk);
@@ -400,7 +400,7 @@ public partial class coinone : ccxt.coinone
         }, marketResolved);
     }
 
-    public virtual bool? handleErrorMessage(WebSocketClient client, object message)
+    public virtual bool handleErrorMessage(WebSocketClient client, IDictionary<string, object> message)
     {
         //
         //     {
@@ -412,12 +412,12 @@ public partial class coinone : ccxt.coinone
         string? type = this.safeString(message, "response_type", "");
         if (type == "ERROR")
         {
-            return ((bool?)((object)(true)));
+            return true;
         }
-        return ((bool?)((object)(false)));
+        return false;
     }
 
-    public override void handleMessage(WebSocketClient client, object message)
+    public override void handleMessage(WebSocketClient client, IDictionary<string, object> message)
     {
         if ((this.handleErrorMessage(client, message) == true))
         {
@@ -464,7 +464,7 @@ public partial class coinone : ccxt.coinone
         };
     }
 
-    public virtual object handlePong(WebSocketClient client, Dictionary<string, object> message)
+    public virtual Dictionary<string, object> handlePong(WebSocketClient client, Dictionary<string, object> message)
     {
         //
         //     {

@@ -74,7 +74,7 @@ class bitopro(ccxt.async_support.bitopro):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'ORDER_BOOK' + ':' + symbolValue
         marketIdValue = self.safe_string(market, 'id', '')
         endPart = None
@@ -109,7 +109,7 @@ class bitopro(ccxt.async_support.bitopro):
         #
         marketId = self.safe_string(message, 'pair')
         market = self.safe_market(marketId, None, '_')
-        symbol = market['symbol']
+        symbol = self.safe_string(market, 'symbol', '')
         event = self.safe_string(message, 'event')
         orderbook = self.safe_value(self.orderbooks, symbol)
         if orderbook is None:
@@ -136,7 +136,7 @@ class bitopro(ccxt.async_support.bitopro):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'TRADE' + ':' + symbolValue
         trades = await self.watch_public('trades', messageHash, market['id'])
         limitResolved = limit
@@ -166,7 +166,7 @@ class bitopro(ccxt.async_support.bitopro):
         #
         marketId = self.safe_string(message, 'pair')
         market = self.safe_market(marketId, None, '_')
-        symbol = market['symbol']
+        symbol = self.safe_string(market, 'symbol', '')
         event = self.safe_string(message, 'event')
         rawData = self.safe_list(message, 'data', [])
         trades = self.parse_trades(rawData, market)
@@ -200,7 +200,7 @@ class bitopro(ccxt.async_support.bitopro):
         messageHash = 'USER_TRADE'
         if symbol is not None:
             market = self.market(symbol)
-            symbolValue = market['symbol']
+            symbolValue = self.safe_string(market, 'symbol', '')
             messageHash = messageHash + ':' + symbolValue
         wsUrl = self.safe_string(self.urls['ws'], 'private')
         if wsUrl is None:
@@ -340,7 +340,7 @@ class bitopro(ccxt.async_support.bitopro):
         if self.markets is None:
             await self.load_markets()
         market = self.market(symbol)
-        symbolValue = market['symbol']
+        symbolValue = self.safe_string(market, 'symbol', '')
         messageHash = 'TICKER' + ':' + symbolValue
         return await self.watch_public('tickers', messageHash, market['id'])
 
@@ -368,7 +368,7 @@ class bitopro(ccxt.async_support.bitopro):
             return  # some TICKER frames arrive without a pair - nothing to resolve them against
         # market-ids are lowercase in REST API and uppercase in WS API
         market = self.safe_market(marketId, None, '_')
-        symbol = market['symbol']
+        symbol = self.safe_string(market, 'symbol', '')
         event = self.safe_string(message, 'event')
         result = self.parse_ticker(message, market)
         result['symbol'] = self.safe_string(market, 'symbol')  # symbol returned from REST's parseTicker is distorted for WS, so re-set it from market object
@@ -402,7 +402,7 @@ class bitopro(ccxt.async_support.bitopro):
         self.extend_exchange_options(defaultOptions)
         wsOptions = self.safe_dict(self.options, 'ws', {})
         wsInnerOptions = self.safe_dict(wsOptions, 'options', {})
-        originalHeaders = wsInnerOptions['headers']
+        originalHeaders = self.safe_dict(wsInnerOptions, 'headers')
         headers = {
             'X-BITOPRO-API': 'ccxt',
             'X-BITOPRO-APIKEY': self.apiKey,

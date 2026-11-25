@@ -1,4 +1,4 @@
-import { Transpiler, installCcxtGoLocalTypes, installCcxtGoIndexableTypes, installCcxtGoParamTypes, installCcxtGoDictParams, installCcxtGoGb05ParamTypes, installCcxtGoGb11HandleErrorsCode, installCcxtGoSignTyping, installRfGo5OwnedTables, installFmGo5G01, installFmGo5G04, installCcxtGoTupleSlotReads, installFmGo5GP08, installFmGo5OG02 } from 'ast-transpiler';
+import { Transpiler, installCcxtGoLocalTypes, installCcxtGoIndexableTypes, installCcxtGoParamTypes, installCcxtGoDictParams, installCcxtGoGb05ParamTypes, installCcxtGoGb11HandleErrorsCode, installCcxtGoSignTyping, installNumParams, installRfGo5OwnedTables, installFmGo5G01, installFmGo5G04, installCcxtGoTupleSlotReads, installCcxtGoFeeTierLiterals, installFmGo5GP08, installFmGo5OG02 } from 'ast-transpiler';
 import { getProgramBatch } from './worker-program-batch.js';
 import log from 'ololog'
 
@@ -99,17 +99,19 @@ export default async ({ transpilerConfig, configKey, file, files, roots }: GoWor
         cachedTranspiler = new Transpiler (transpilerConfig, programCache);
         cachedTranspiler.setVerboseMode (false);
         cachedTranspiler.goTranspiler.transformLeadingComment = transformLeadingComment;
-        installCcxtGoLocalTypes(cachedTranspiler.goTranspiler, transpilerConfig?.go?.unifiedInt64Params);
+        installCcxtGoLocalTypes(cachedTranspiler.goTranspiler, transpilerConfig?.go?.unifiedInt64Params, transpilerConfig?.go?.unifiedFloat64Params);
         installCcxtGoIndexableTypes(cachedTranspiler.goTranspiler);
         installCcxtGoParamTypes(cachedTranspiler.goTranspiler);
         installCcxtGoDictParams(cachedTranspiler.goTranspiler);
         installCcxtGoGb05ParamTypes(cachedTranspiler.goTranspiler);
         installCcxtGoGb11HandleErrorsCode(cachedTranspiler.goTranspiler);
         installCcxtGoSignTyping(cachedTranspiler.goTranspiler);
+        installNumParams(cachedTranspiler.goTranspiler);
         installRfGo5OwnedTables(cachedTranspiler.goTranspiler);  // RF-go-5
         installFmGo5G01(cachedTranspiler.goTranspiler);  // FM-GO5
         installFmGo5G04(cachedTranspiler.goTranspiler);  // FM-GO5
         installCcxtGoTupleSlotReads(cachedTranspiler.goTranspiler);
+        installCcxtGoFeeTierLiterals(cachedTranspiler.goTranspiler);
         installFmGo5GP08(cachedTranspiler.goTranspiler);  // FM-GO5
         installFmGo5OG02(cachedTranspiler.goTranspiler);  // FM-GO5
         installCcxtGoMarketBoolReads(cachedTranspiler.goTranspiler);

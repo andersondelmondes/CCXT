@@ -1,17 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * Typed transpiled Java cores. Retypes every `CompletableFuture<Object> <unified>(...)` the
- * transpiler emits (BaseExchange / Exchange / PredictionExchange tiers and every core under
- * exchanges/, exchanges/pro/, exchanges/prediction/) to `CompletableFuture<T>` using the
- * return-type table generateJavaWrappers.ts derives from ts/src/base/Exchange.ts, and puts
- * the typed construction on the core's own `supplyAsync` tail.
- *
- * The unified types are views over the raw payload (`Ticker extends TypedMap extends
- * AbstractMap<String,Object>`, `OHLCV extends TypedList`), so a typed result IS the dict the
- * transpiled consumers (Helpers.GetValue / safe* / extend / filterBy / json) already handle:
- * no internal call site changes and no inverse conversion layer.
- *
- * Java generics are invariant: a name is retyped on every tier at once or nothing compiles.
+ * Retypes every transpiled `CompletableFuture<Object> <unified>(...)` core to `CompletableFuture<T>`
+ * (types from generateJavaWrappers.ts) on every tier at once (Java generics are invariant); the
+ * unified types are views over the raw dict, so transpiled consumers need no change.
  */
 
 import * as fs from 'fs';
@@ -21,12 +12,12 @@ import {
 } from './generateJavaWrappers.js';
 import type { MethodInfo } from './generateJavaWrappers.js';
 import { nativeTypedList } from './javaUtilImports.js';
+import { javaIsTypedMapDto } from './java-local-types.js';
 
 export type JavaTier = 'rest' | 'ws' | 'prediction';
 
-// Hand-written base bodies (`completedFuture(this.currencies)`) consumed by setMarkets: they
-// stay `CompletableFuture<Object>` on the core; TypedSurface converts them.
-export const SURFACE_ONLY = new Set([ 'fetchMarkets', 'fetchCurrencies', 'loadMarkets' ]);
+// loadMarkets stays `CompletableFuture<Object>` on the core; TypedSurface converts it.
+export const SURFACE_ONLY = new Set([ 'loadMarkets' ]);
 
 const FUTURE = 'java.util.concurrent.CompletableFuture';
 const BASE_EXCHANGE_TS = './ts/src/base/Exchange.ts';
@@ -101,6 +92,10 @@ export function typedReturnTable(tier: JavaTier): Map<string, MethodInfo> {
             if (shared.has(m.name) && table.has(m.name)) table.set(m.name, m);
         }
     }
+    for (const m of list) {
+        const raw = LOAD_SOURCE_CORES[m.name];
+        if (raw !== undefined) table.set(m.name, { ...m, javaReturnType: raw, isArray: false, elementType: null, surface: m } as MethodInfo);
+    }
     return table;
 }
 
@@ -110,9 +105,20 @@ const BASE_ASYNC_HELPERS: MethodInfo[] = [
     // ral-84j7: Promise<DepositAddresses> on the base stub and all 10 venue bodies; every body
     // returns this.indexBy (x, k) (hand-written Map<String, Object>) or a Map-declared local
     { name: 'fetchDepositAddressesByNetwork', javaReturnType: 'Map<String, Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false },
+    // Promise<{}> on the base stub: every venue body returns a response dict, a parse* dict or { 'info': .. }
+    ...[ 'setLeverage', 'setMarginMode', 'setPositionMode', 'cancelAllOrdersAfter' ].map(name => ({ name, javaReturnType: 'Map<String, Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false })),
+    // Promise<{}> / Promise<Dict> declarations: every body returns a fee / limit / response dict
+    ...[ 'fetchTransactionFees', 'fetchTradingLimits', 'createSubAccount' ].map(name => ({ name, javaReturnType: 'Map<String, Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false })),
+    // Promise<Dict[]> on every declaration: bodies return filterBy*SinceLimit, sortBy or parseBorrowRateHistory rows
+    ...[ 'fetchSettlementHistory', 'fetchMySettlementHistory', 'fetchBorrowRateHistory' ].map(name => ({ name, javaReturnType: 'List<Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false })),    // Promise<Dictionary<Dictionary<OHLCV[]>>>: the base stub throws, every venue body returns createOHLCVObject (Map)
+    { name: 'watchOHLCVForSymbols', javaReturnType: 'Map<String, Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false },
+    // Promise<AllGreeks> on the base stub and every venue (parseAllGreeks index): the AllGreeks map view
+    { name: 'fetchAllGreeks', javaReturnType: 'AllGreeks', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false },
 ];
+// Promise<Market[]> / Promise<Currencies> on every tier: the raw rows setMarkets reads; TypedSurface wraps them
+const LOAD_SOURCE_CORES: Record<string, string> = { fetchMarkets: 'List<Object>', fetchCurrencies: 'Map<String, Object>' };
 // ral-84j7: base stubs of these typed cores take a type witness on failedFuture (no cast lambda)
-const WITNESS_FAILED_FUTURE = new Set([ 'fetchDepositAddressesByNetwork' ]);
+const WITNESS_FAILED_FUTURE = new Set([ 'fetchDepositAddressesByNetwork', 'setLeverage', 'setMarginMode', 'setPositionMode', 'cancelAllOrdersAfter', 'fetchTransactionFees', 'fetchTradingLimits', 'createSubAccount', 'watchOHLCVForSymbols' ]);
 // loadOutcome (): Promise<PredictionOutcomeMarket> sends the outcome dict on every path
 const PREDICTION_BASE_ASYNC_HELPERS: MethodInfo[] = [
     { name: 'loadOutcome', javaReturnType: 'Map<String, Object>', isArray: false, elementType: null, requiredParams: [], optionalParams: [], isWatch: false },
@@ -148,6 +154,22 @@ export const JAVA_ASYNC_SUPPLIER = 'BaseExchange.supplyAsync';
 /** Import that makes JAVA_ASYNC_SUPPLIER resolve outside package io.github.ccxt. */
 export const JAVA_ASYNC_SUPPLIER_IMPORT = 'import io.github.ccxt.BaseExchange;';
 
+/** The line opening a supply body: the block lambda, or the header of the method's private sync core. */
+function isSupplyBodyOpen(line: string): boolean {
+    return line.trim().endsWith('supplyAsync(() -> {') || /^private \S.* \w+Core\(.*\)$/.test(line.trim());
+}
+
+/** A one-line wrapper `return SUPPLIER(() -> this.<name>Core(..));`: the core's header line index, else -1. */
+function asyncCoreHeader(lines: string[], line: string, name: string, from: number): number {
+    if (!line.trim().startsWith(`return ${JAVA_ASYNC_SUPPLIER}(() -> this.${name}Core(`) || !line.trim().endsWith('));')) return -1;
+    const header = new RegExp(`^\\s*private \\S.* ${name}Core\\(`);
+    for (let k = from; k < lines.length; k++) {
+        if (header.test(lines[k])) return k;
+        if (k > from + 3 && /^\s*public /.test(lines[k])) return -1;
+    }
+    return -1;
+}
+
 /** True for a trimmed line closing a generated supplyAsync lambda: `});`. */
 export function isAsyncLambdaClose(line: string): boolean {
     return line.startsWith('})');
@@ -163,6 +185,12 @@ const TYPED_BASE_READERS: Record<string, string> = {
     safeTimestamp2: 'Long', milliseconds: 'Long', parse8601: 'Long',
     // BaseExchange.java: `Double safeNumber(Object, Object, Object)`, `String decode(Object)`, `Long parseToInt(Object)`
     safeNumber: 'Double', decode: 'String', parseToInt: 'Long',
+    // generated base `List<Object> parseMarkets(..)` / `Map<String, Object> parseCurrencies(..)`
+    parseMarkets: 'List<Object>', parseCurrencies: 'Map<String, Object>',
+    // BaseExchange.java `List<Object> arrayConcat(Object, Object)`; generated base `List<Object> arraysConcat(..)`
+    arrayConcat: 'List<Object>', arraysConcat: 'List<Object>',
+    // BaseExchange.java `java.util.List<Object> toArray(Object)`: a fresh list for every input
+    toArray: 'List<Object>',
 };
 // BaseExchange.java `java.util.Map<String, Object> extend(Object aa, Object bb)`: only the two-argument
 // overload is typed (`Object extend(Object... objs)` is not)
@@ -255,6 +283,21 @@ function declaredReturnTypes(source: string): Map<string, string> {
     return out;
 }
 
+let baseExchangeReturnCache: Map<string, string> | undefined;
+/** Declared returns of the on-disk BaseExchange.java (single-spelling names only), read once. */
+function baseExchangeDeclaredReturns(): Map<string, string> {
+    if (baseExchangeReturnCache === undefined) {
+        let content = '';
+        try {
+            content = fs.readFileSync('./java/lib/src/main/java/io/github/ccxt/BaseExchange.java', 'utf8');
+        } catch (e) {
+            content = '';
+        }
+        baseExchangeReturnCache = declaredReturnTypes(content);
+    }
+    return baseExchangeReturnCache;
+}
+
 const API_METHOD_RE = /^\s*public (?:java\.util\.concurrent\.)?CompletableFuture<(.+?)>\s+(\w+) \(Object\.\.\. optionalArgs\)/;
 const apiReturnCache = new Map<string, Map<string, string>>();
 /** `CompletableFuture<T>` of the generated implicit-api wrappers the class extends (on-disk api/<X>Api.java). */
@@ -321,7 +364,7 @@ export function supplyBodyReturnsType(lines: string[], from: number, to: number,
     const want = m.isArray ? undefined : m.javaReturnType;
     if (want === undefined || ![ 'String', 'Long', 'Double', 'Boolean', 'Map<String, Object>', 'List<Object>' ].includes(want)) return false;
     const body = lines.slice(from, to);
-    const opened = body.findIndex(l => l.trim().endsWith('supplyAsync(() -> {'));
+    const opened = body.findIndex(l => isSupplyBodyOpen(l));
     if (opened === -1) return false;
     const inner = body.slice(opened + 1);
     // a block lambda has `return`s of its own; expression lambdas and switch-expression arms
@@ -384,6 +427,11 @@ function returnExprHasType(e: string, want: string, ctx?: SupplyReturnContext): 
     if (ctx === undefined) return false;
     // a method of this class whose declared Java return is `want` (an override can only narrow it)
     if (call !== undefined && ctx.declared.get(call) === want) return true;
+    // an inherited BaseExchange.java method declared `want` (filterBy*SinceLimit: List<Object>)
+    if (call !== undefined && !ctx.declared.has(call) && baseExchangeDeclaredReturns().get(call) === want) return true;
+    // a TypedMap view (`Order parseOrder(..)`) is a Map<String, Object>
+    const view = /^(?:io\.github\.ccxt\.types\.)?(\w+)$/.exec(call === undefined ? '' : ctx.declared.get(call) ?? '');
+    if (want === 'Map<String, Object>' && view !== null && javaIsTypedMapDto(view[1])) return true;
     // `(this.m(..)).join()` of a CompletableFuture<want>: a generated api wrapper, a typed core
     // (retyped in this same pass, on every tier) or an on-disk typed declaration
     const joined = /^\((this\.\w+\(.*\))\)\.join\(\)$/.exec(e);
@@ -426,7 +474,7 @@ function returnExprIsObject(e: string, body: string[]): boolean {
 function castSupplyReturnsInPlace(lines: string[], from: number, to: number, supplyIndent: string, m: MethodInfo, ctx?: SupplyReturnContext): boolean {
     const want = m.isArray ? undefined : m.javaReturnType;
     if (want === undefined || ![ 'String', 'Boolean', 'Map<String, Object>' ].includes(want)) return false;
-    const opened = lines.slice(from, to).findIndex(l => l.trim().endsWith('supplyAsync(() -> {'));
+    const opened = lines.slice(from, to).findIndex(l => isSupplyBodyOpen(l));
     if (opened === -1) return false;
     const start = from + opened + 1;
     for (let k = start; k < to; k++) {
@@ -481,6 +529,18 @@ export function typeCoreReturns(source: string, table: Map<string, MethodInfo>):
             const trimmed = lines[j].trim();
             // an `Object...` front returns its typed core's future unchanged
             if (trimmed.startsWith(`return this.${name}(`)) {
+                converted = true;
+                break;
+            }
+            const core = asyncCoreHeader(lines, lines[j], name, j + 1);
+            if (core !== -1) {
+                // the body sits in the private sync core: prove or cast its returns there, else convert on the wrapper
+                let end = core + 2;
+                while (end < lines.length && lines[end] !== close) end++;
+                const typed = ('returnsProven' in m && m.returnsProven === true) || supplyBodyReturnsType(lines, core, end, bodyIndent, m, ctx)
+                    || castSupplyReturnsInPlace(lines, core, end, bodyIndent, m, ctx);
+                if (typed) lines[core] = lines[core].replace(/^(\s*private )\S.*?( \w+Core\()/, `$1${qualifyJavaType(m.javaReturnType)}$2`);
+                else lines[j] = `${lines[j].slice(0, -1)}.thenApply(${coreConverter(m)});`;
                 converted = true;
                 break;
             }
@@ -575,6 +635,8 @@ export function javaTypedCoreDirectReturnSelfTest(): string[] {
         [ 'joined ws Future cast in place', 'String', [ 'Object future = this.safeValue(parameters, "k");', 'if (future != null)', '{', '    return ((io.github.ccxt.ws.Future)future).getFuture().join();', '}', 'return null;' ], false ],
         [ 'Object local cast in place', 'Boolean', [ 'Object r = this.safeValue(parameters, "k");', 'return r;' ], false ],
         [ 'typed future of another type keeps cast', 'String', [ 'Object r = null;', 'if (r == null)', '{', '    return r;', '}', 'return (this.fetchX(parameters)).join();' ], true ],
+        [ 'inherited filterBySymbolSinceLimit is List', 'List<Object>', [ 'return this.filterBySymbolSinceLimit(parameters, null, null, null, false);' ], false ],
+        [ 'inherited Object reader keeps cast', 'List<Object>', [ 'return this.filterBySymbol(parameters, null);' ], true ],
         [ 'Long core is no reference cast', 'Long', [ 'Object r = this.safeValue(parameters, "k");', 'return r;' ], true ],
     ];
     for (const [ label, type, body, cast ] of rows) {

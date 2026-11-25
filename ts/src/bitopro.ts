@@ -910,7 +910,10 @@ export default class bitopro extends Exchange {
         };
         // we need to have a limit argument because "to" and "from" are required
         // supports slightly more than 75k candles atm, but limit here to avoid errors
-        const limitResolved = this.parseToInt ((limit === undefined) ? 500 : Math.min (limit, 75000));
+        let limitResolved: number = 500;
+        if (limit !== undefined) {
+            limitResolved = this.parseToInt (Math.min (limit, 75000));
+        }
         const timeframeInSeconds = this.parseTimeframe (timeframe);
         let alignedSince: Int = undefined;
         if (since === undefined) {
@@ -967,7 +970,7 @@ export default class bitopro extends Exchange {
             const candle = this.safeList (candles, i, []);
             if (candle[0] === timestamp) {
                 result.push (candle);
-                i = this.sum (i, 1);
+                i = i + 1;
             } else {
                 // set open, high, low to close
                 const closeValue = this.safeValue (copyFrom, 4);
@@ -1051,7 +1054,10 @@ export default class bitopro extends Exchange {
             '4': 'canceled',
             '6': 'canceled',
         };
-        return (status === undefined) ? undefined : this.safeString (statuses, status);
+        if (status === undefined) {
+            return undefined;
+        }
+        return this.safeString (statuses, status);
     }
 
     override parseOrder (order: Dict, market: Market = undefined): Order {
@@ -1962,7 +1968,7 @@ export default class bitopro extends Exchange {
         return { 'url': fullUrl, 'method': method, 'body': requestBody, 'headers': requestHeaders };
     }
 
-    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str) {
+    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool {
         if (response === undefined) {
             return undefined; // fallback to the default error handler
         }

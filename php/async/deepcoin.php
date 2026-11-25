@@ -609,7 +609,8 @@ class deepcoin extends Exchange {
 
     public function set_markets(mixed $markets, mixed $currencies = null) {
         $result = parent::set_markets($markets, $currencies);
-        $symbols = is_array($result) ? array_keys($result) : array();
+        $resultCopy = $this->extend(array(), $result);
+        $symbols = is_array($resultCopy) ? array_keys($resultCopy) : array();
         for ($i = 0; $i < count($symbols); $i++) {
             $symbol = $symbols[$i];
             $market = $this->safe_dict($result, $symbol, array());
@@ -827,7 +828,7 @@ class deepcoin extends Exchange {
         $timestamp = $this->safe_integer_omit_zero($ticker, 'ts');
         $marketId = $this->safe_string($ticker, 'instId');
         $marketResolved = $this->safe_market($marketId, $market, '-');
-        $symbol = $marketResolved['symbol'];
+        $symbol = $this->safe_string($marketResolved, 'symbol');
         $last = $this->safe_string($ticker, 'last');
         $open = $this->safe_string($ticker, 'open24h');
         $quoteVolume = $this->safe_string($ticker, 'volCcy24h');
@@ -1616,7 +1617,7 @@ class deepcoin extends Exchange {
             $response = Async\await($this->privatePostDeepcoinTradeOrder($request));
         }
         $data = $this->safe_dict($response, 'data', array());
-        return $this->parse_order($data, $market);
+        return $this->parse_order($this->extend(array(), $data), $market);
     }
 
     public function create_order_request(?string $symbol, string $type, string $side, ?float $amount, ?float $price = null, $params = array()): array {
@@ -1983,7 +1984,7 @@ class deepcoin extends Exchange {
         //
         $data = $this->safe_list($response, 'data', array());
         $entry = $this->safe_dict($data, 0, array());
-        return $this->parse_order($entry, $market);
+        return $this->parse_order($this->extend(array(), $entry), $market);
     }
 
     public function fetch_open_order(string $id, ?string $symbol = null, $params = array()): PromiseInterface {
@@ -2019,7 +2020,7 @@ class deepcoin extends Exchange {
             throw new OrderNotFound($this->id . ' fetchOpenOrder() could not find order id ' . $id);
         }
         $entry = $this->safe_dict($data, 0, array());
-        return $this->parse_order($entry, $market);
+        return $this->parse_order($this->extend(array(), $entry), $market);
     }
 
     public function fetch_canceled_and_closed_orders(?string $symbol = null, ?int $since = null, ?int $limit = null, $params = array()): PromiseInterface {
@@ -2240,7 +2241,7 @@ class deepcoin extends Exchange {
         $paramsOmitted = $this->omit($params, 'trigger');
         $response = null;
         if ($trigger) {
-            $request['instType'] = $this->convert_to_instrument_type($market['type']);
+            $request['instType'] = $this->convert_to_instrument_type($this->safe_string($market, 'type'));
             //
             //     {
             //         "code": "0",
@@ -2363,7 +2364,7 @@ class deepcoin extends Exchange {
             $response = Async\await($this->privatePostDeepcoinTradeCancelOrder($this->extend($request, $params)));
         }
         $data = $this->safe_dict($response, 'data', array());
-        return $this->parse_order($data, $market);
+        return $this->parse_order($this->extend(array(), $data), $market);
     }
 
     public function cancel_all_orders(?string $symbol = null, $params = array()): PromiseInterface {
@@ -2480,7 +2481,7 @@ class deepcoin extends Exchange {
             $response = Async\await($this->privatePostDeepcoinTradeReplaceOrder($this->extend($request, $params)));
         }
         $data = $this->safe_dict($response, 'data', array());
-        return $this->parse_order($data);
+        return $this->parse_order($this->extend(array(), $data));
     }
 
     public function cancel_orders(array $ids, ?string $symbol = null, $params = array()): PromiseInterface {
@@ -2681,14 +2682,15 @@ class deepcoin extends Exchange {
             Async\await($this->load_markets());
         }
         $market = $this->market($symbol);
-        $instrumentType = $this->convert_to_instrument_type($market['type']);
+        $marketSymbol = $this->safe_string($market, 'symbol', '');
+        $instrumentType = $this->convert_to_instrument_type($this->safe_string($market, 'type'));
         $request = array(
             'instType' => $instrumentType,
             'instId' => $market['id'],
         );
         $response = Async\await($this->privateGetDeepcoinAccountPositions($this->extend($request, $params)));
         $data = $this->safe_list($response, 'data', array());
-        return $this->parse_positions($data, array( $market['symbol'] ));
+        return $this->parse_positions($data, array( $marketSymbol ));
     }
 
     public function fetch_positions(?array $symbols = null, $params = array()): PromiseInterface {
@@ -3068,7 +3070,7 @@ class deepcoin extends Exchange {
         return $this->parse_funding_rate_histories($rows, $market, $since, $limit);
     }
 
-    public function parse_funding_rate_history(mixed $info, ?array $market = null): array {
+    public function parse_funding_rate_history(array $info, ?array $market = null): array {
         //
         //     {
         //         "instrumentID": "ETHUSD",
@@ -3236,7 +3238,7 @@ class deepcoin extends Exchange {
             $response = Async\await($this->privatePostDeepcoinTradeClosePositionByIds($this->extend($request, $paramsOmitted)));
         }
         $data = $this->safe_list($response, 'data', array());
-        return $this->parse_order($data, $market);
+        return $this->parse_order($this->safe_dict($data, 0, array()), $market);
     }
 
     public function sign(string $path, array $api = array('public'), string $method = 'GET', $params = array()): array {
@@ -3266,9 +3268,10 @@ class deepcoin extends Exchange {
             );
             $requestBody = null;
             if ($method !== 'GET') {
-                $requestBody = $this->json($params);
+                $body = $this->json($params);
                 $privateHeaders['Content-Type'] = 'application/json';
-                $payload .= $requestBody;
+                $payload .= $body;
+                $requestBody = $body;
             }
             $signature = $this->hmac($this->encode($payload), $this->encode($this->secret), 'sha256', 'base64');
             $privateHeaders['DC-ACCESS-SIGN'] = $signature;
@@ -3277,7 +3280,7 @@ class deepcoin extends Exchange {
         return array( 'url' => $url, 'method' => $method, 'body' => null, 'headers' => null );
     }
 
-    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody) {
+    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody): ?bool {
         $data = $this->safe_dict($response, 'data', array());
         $msg = $this->safe_string($response, 'msg');
         $messageCode = $this->safe_string($response, 'code');
@@ -3287,12 +3290,10 @@ class deepcoin extends Exchange {
         if (($msg !== null) && ($msg === '') && ($sMsg !== null)) {
             $msg = $sMsg;
         }
-        $errorList = $this->safe_list($data, 'errorList');
-        if ($errorList !== null) {
-            for ($i = 0; $i < count($errorList); $i++) {
-                $entry = $this->safe_dict($errorList, $i, array());
-                $errorCode = $this->safe_string($entry, 'errorCode');
-            }
+        $errorList = $this->safe_list($data, 'errorList', array());
+        for ($i = 0; $i < count($errorList); $i++) {
+            $entry = $this->safe_dict($errorList, $i, array());
+            $errorCode = $this->safe_string($entry, 'errorCode');
         }
         $feedback = $this->id . ' ' . $body;
         if (($sCode === null) && ($errorCode !== null)) {

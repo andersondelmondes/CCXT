@@ -351,7 +351,7 @@ public partial class mercado : Exchange
         //
         List<object> result = new List<object>() {};
         IDictionary<string, object> amountLimits = this.safeDict(this.options, "limits", new Dictionary<string, object>() {});
-        IList<object> coins = this.toArray(response);
+        IList<object> coins = response;
         for (int i = 0; i < (coins?.Count ?? 0); i++)
         {
             string? coin = this.safeString(coins, i, "");
@@ -441,7 +441,7 @@ public partial class mercado : Exchange
         return this.parseOrderBook(response, (market.ContainsKey("symbol") ? market["symbol"] : null));
     }
 
-    public override ccxt.Ticker parseTicker(object ticker, object market = null)
+    public override ccxt.Ticker parseTicker(IDictionary<string, object> ticker, IDictionary<string, object> market = null)
     {
         //
         //     {
@@ -523,9 +523,8 @@ public partial class mercado : Exchange
     public override ccxt.Trade parseTrade(object trade, IDictionary<string, object> market = null)
     {
         Int64? timestamp = this.safeTimestamp2(trade, "date", "executed_timestamp");
-        Dictionary<string, object> marketResolved = this.safeMarket(null, market);
+        Dictionary<string, object> marketResolved = this.safeMarket(((string)null), market);
         string? id = this.safeString2(trade, "tid", "operation_id");
-        string? type = null;
         string? side = this.safeString(trade, "type");
         string? price = this.safeString(trade, "price");
         string? amount = this.safeString2(trade, "amount", "quantity");
@@ -545,7 +544,7 @@ public partial class mercado : Exchange
             { "datetime", this.iso8601(timestamp) },
             { "symbol", (marketResolved != null && marketResolved.ContainsKey("symbol") ? marketResolved["symbol"] : null) },
             { "order", null },
-            { "type", type },
+            { "type", null },
             { "side", side },
             { "takerOrMaker", null },
             { "price", price },
@@ -595,7 +594,7 @@ public partial class mercado : Exchange
         return this.parseTrades(response, market, since, limit);
     }
 
-    public override Dictionary<string, object> parseBalance(object response)
+    public override Dictionary<string, object> parseBalance(IDictionary<string, object> response)
     {
         IDictionary<string, object> data = this.safeDict(response, "response_data", new Dictionary<string, object>() {});
         IDictionary<string, object> balances = this.safeDict(data, "balance", new Dictionary<string, object>() {});
@@ -660,14 +659,15 @@ public partial class mercado : Exchange
             await this.loadMarkets();
         }
         Dictionary<string, object> market = this.market(symbol);
+        string? precisionSymbol = this.safeString(market, "symbol", "");
         Dictionary<string, object> request = new Dictionary<string, object>() {
             { "coin_pair", (market.ContainsKey("id") ? market["id"] : null) },
         };
         Dictionary<string, object> response = null;
         if ((type == "limit"))
         {
-            request["limit_price"] = this.priceToPrecision((market.ContainsKey("symbol") ? market["symbol"] : null), price);
-            request["quantity"] = this.amountToPrecision((market.ContainsKey("symbol") ? market["symbol"] : null), amount);
+            request["limit_price"] = this.priceToPrecision(precisionSymbol, price);
+            request["quantity"] = this.amountToPrecision(precisionSymbol, amount);
             if ((side == "buy"))
             {
                 response = await this.privatePostPlaceBuyOrder(this.extend(request, parameters));
@@ -685,11 +685,11 @@ public partial class mercado : Exchange
                 }
                 string? amountString = this.numberToString(amount);
                 string? priceString = this.numberToString(price);
-                request["cost"] = this.priceToPrecision((market.ContainsKey("symbol") ? market["symbol"] : null), this.parseToNumeric(Precise.stringMul(amountString, priceString)));
+                request["cost"] = this.priceToPrecision(precisionSymbol, this.parseToNumeric(Precise.stringMul(amountString, priceString)));
                 response = await this.privatePostPlaceMarketBuyOrder(this.extend(request, parameters));
             } else
             {
-                request["quantity"] = this.amountToPrecision((market.ContainsKey("symbol") ? market["symbol"] : null), amount);
+                request["quantity"] = this.amountToPrecision(precisionSymbol, amount);
                 response = await this.privatePostPlaceMarketSellOrder(this.extend(request, parameters));
             }
         }
@@ -748,7 +748,7 @@ public partial class mercado : Exchange
         //
         IDictionary<string, object> responseData = this.safeDict(response, "response_data", new Dictionary<string, object>() {});
         IDictionary<string, object> order = this.safeDict(responseData, "order", new Dictionary<string, object>() {});
-        return this.parseOrder(order, market);
+        return this.parseOrder(this.extend(new Dictionary<string, object>() {}, order), market);
     }
 
     public virtual string? parseOrderStatus(string? status)
@@ -761,7 +761,7 @@ public partial class mercado : Exchange
         return this.safeString(statuses, status, status);
     }
 
-    public override ccxt.Order parseOrder(object order, IDictionary<string, object> market = null)
+    public override ccxt.Order parseOrder(IDictionary<string, object> order, IDictionary<string, object> market = null)
     {
         //
         //     {
@@ -810,7 +810,7 @@ public partial class mercado : Exchange
         string? filled = this.safeString(order, "executed_quantity");
         Int64? lastTradeTimestamp = this.safeTimestamp(order, "updated_timestamp");
         List<object> rawTrades = this.safeList(order, "operations", new List<object>() {});
-        string? symbol = ((string)(marketResolved != null && marketResolved.ContainsKey("symbol") ? marketResolved["symbol"] : null));
+        string? symbol = this.safeString(marketResolved, "symbol");
         return this.safeOrder(new Dictionary<string, object>() {
             { "info", order },
             { "id", id },
@@ -864,7 +864,7 @@ public partial class mercado : Exchange
         Dictionary<string, object> response = await this.privatePostGetOrder(this.extend(request, parameters));
         IDictionary<string, object> responseData = this.safeDict(response, "response_data", new Dictionary<string, object>() {});
         IDictionary<string, object> order = this.safeDict(responseData, "order");
-        return this.parseOrder(order, market);
+        return this.parseOrder(this.extend(new Dictionary<string, object>() {}, order), market);
     }
 
     /**
@@ -948,7 +948,7 @@ public partial class mercado : Exchange
         return ccxt.BaseExchange.ToTransaction(this.parseTransaction(withdrawal, currency));
     }
 
-    public override Dictionary<string, object> parseTransaction(object transaction, IDictionary<string, object> currency = null)
+    public override Dictionary<string, object> parseTransaction(IDictionary<string, object> transaction, IDictionary<string, object> currency = null)
     {
         //
         //     {
@@ -988,7 +988,7 @@ public partial class mercado : Exchange
         };
     }
 
-    public override IList<object> parseOHLCV(object ohlcv, object market = null)
+    public override IList<object> parseOHLCV(object ohlcv, IDictionary<string, object> market = null)
     {
         return new List<object> {this.safeInteger(ohlcv, 0), this.safeNumber(ohlcv, 1), this.safeNumber(ohlcv, 2), this.safeNumber(ohlcv, 3), this.safeNumber(ohlcv, 4), this.safeNumber(ohlcv, 5)};
     }
@@ -1190,7 +1190,7 @@ public partial class mercado : Exchange
             privateHeaders = new Dictionary<string, object>() {
                 { "Content-Type", "application/x-www-form-urlencoded" },
                 { "TAPI-ID", this.apiKey },
-                { "TAPI-MAC", this.hmac(this.encode(auth), this.encode(this.secret), sha512) },
+                { "TAPI-MAC", this.hmac(auth, this.secret, sha512) },
             };
         }
         string? requestBody = privateBody;
@@ -1211,11 +1211,11 @@ public partial class mercado : Exchange
         };
     }
 
-    public override object handleErrors(Int64? code, string reason, string url, string method, object headers, object body, object response, Dictionary<string, object> requestHeaders, object requestBody)
+    public override bool? handleErrors(Int64? code, string reason, string url, string method, IDictionary<string, object> headers, string body, object response, Dictionary<string, object> requestHeaders, string requestBody)
     {
         if ((response == null))
         {
-            return null;
+            return ((bool?)((object)(null)));
         }
         //
         // todo add a unified standard handleErrors with this.exceptions in describe()
@@ -1227,6 +1227,6 @@ public partial class mercado : Exchange
         {
             throw new ExchangeError (((this.id + " ") + this.json(response))) ;
         }
-        return null;
+        return ((bool?)((object)(null)));
     }
 }

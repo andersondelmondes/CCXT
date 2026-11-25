@@ -5,7 +5,7 @@
 
 from ccxt.base.exchange import Exchange
 from ccxt.abstract.bigone import ImplicitAPI
-from ccxt.base.types import Balances, Currencies, Currency, CurrencyInterface, DepositAddress, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Tickers, Trade, Transaction, TransferEntry
+from ccxt.base.types import Balances, Bool, Currencies, Currency, CurrencyInterface, DepositAddress, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Tickers, Trade, Transaction, TransferEntry
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import PermissionDenied
@@ -615,7 +615,7 @@ class bigone(Exchange, ImplicitAPI):
         promises = [self.publicGetAssetPairs(params), self.contractPublicGetSymbols(params)]
         promisesResult = promises
         response = self.safe_dict(promisesResult, 0)
-        contractResponse = self.safe_value(promisesResult, 1)
+        contractMarkets = self.safe_list(promisesResult, 1, [])
         #
         #     {
         #         "code":0,
@@ -730,7 +730,6 @@ class bigone(Exchange, ImplicitAPI):
                 'created': None,
                 'info': market,
             }))
-        contractMarkets = self.to_array(contractResponse)
         for i in range(0, len(contractMarkets)):
             market = contractMarkets[i]
             baseId = self.safe_string(market, 'baseCurrency')
@@ -2297,7 +2296,7 @@ class bigone(Exchange, ImplicitAPI):
         data = self.safe_dict(response, 'data', {})
         return self.parse_transaction(data, currency)
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         if response is None:
             return None  # fallback to default error handler
         #

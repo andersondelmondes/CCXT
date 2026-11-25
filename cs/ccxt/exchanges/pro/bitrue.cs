@@ -426,7 +426,7 @@ public partial class bitrue : ccxt.bitrue
         IDictionary<string, object> market = null;
         if (isFutures)
         {
-            string? wsBaseQuote = this.safeStringLower(parts, 2);
+            string? wsBaseQuote = this.safeStringLower(parts, 2, "");
             market = this.findSwapMarketByWsBaseQuote(wsBaseQuote);
         } else
         {
@@ -463,9 +463,7 @@ public partial class bitrue : ccxt.bitrue
 
     public virtual IDictionary<string, object> findSwapMarketByWsBaseQuote(string? wsBaseQuote)
     {
-        // typed Str, not string: callers pass safeStringLower's result, a *string in go,
-        // and only a nullable type makes the go transpiler compare with ccxt.IsEqual (which
-        // dereferences it) instead of a plain == that never matches, leaving every swap frame unparsed
+        // callers pass safeStringLower (parts, 2, ''), a plain string in every port
         if ((this.markets == null))
         {
             return null;
@@ -508,7 +506,7 @@ public partial class bitrue : ccxt.bitrue
         return result;
     }
 
-    public virtual object convertFromRawQuantity(string symbol, object rawQuantity)
+    public virtual object convertFromRawQuantity(string symbol, double? rawQuantity)
     {
         if ((rawQuantity == null))
         {
@@ -538,12 +536,12 @@ public partial class bitrue : ccxt.bitrue
      * @param {object} [params] extra parameters specific to the exchange API endpoint
      * @returns {boolean} true
      */
-    public async virtual Task<object> unSubscribe(object subHash, object channel, object cbId, IDictionary<string, object> subscription, IDictionary<string, object> parameters = null)
+    public async virtual Task<object> unSubscribe(string subHash, string channel, string cbId, IDictionary<string, object> subscription, IDictionary<string, object> parameters = null)
     {
         parameters ??= new Dictionary<string, object>();
         string? url = ((string)(this.urlsApiSections.ContainsKey("ws") && this.urlsApiSections["ws"].ContainsKey("futurePublic") ? this.urlsApiSections["ws"]["futurePublic"] : null));
         var client = this.client(url);
-        if ((client.subscriptions != null && subHash is string inOpKey0 && client.subscriptions.ContainsKey(inOpKey0)))
+        if ((client.subscriptions != null && client.subscriptions.ContainsKey(subHash)))
         {
             Dictionary<string, object> request = new Dictionary<string, object>() {
                 { "event", "unsub" },
@@ -632,13 +630,13 @@ public partial class bitrue : ccxt.bitrue
             await this.loadMarkets();
         }
         Dictionary<string, object> market = this.market(symbol);
-        string? symbolValue = ((string)(market.ContainsKey("symbol") ? market["symbol"] : null));
+        string? symbolValue = this.safeString(market, "symbol", "");
         if ((((market.ContainsKey("swap") ? market["swap"] : null) as bool?) != true))
         {
             throw new NotSupported ((this.id + " unWatchTrades is only supported for swap markets")) ;
         }
-        string? baseIdLower = this.safeStringLower(market, "baseId");
-        string? quoteIdLower = this.safeStringLower(market, "quoteId");
+        string? baseIdLower = this.safeStringLower(market, "baseId", "");
+        string? quoteIdLower = this.safeStringLower(market, "quoteId", "");
         string wsId = (("e_" + baseIdLower) + quoteIdLower);
         string channel = (("market_" + wsId) + "_trade_ticker");
         Dictionary<string, object> subscription = new Dictionary<string, object>() {
@@ -672,7 +670,7 @@ public partial class bitrue : ccxt.bitrue
         //
         string? channel = this.safeString(message, "channel");
         List<object> parts = channel.Split(new [] {"_"}, StringSplitOptions.None).ToList<object>();
-        string? wsBaseQuote = this.safeStringLower(parts, 2);
+        string? wsBaseQuote = this.safeStringLower(parts, 2, "");
         IDictionary<string, object> market = this.findSwapMarketByWsBaseQuote(wsBaseQuote);
         string? symbol = this.safeString(market, "symbol");
         if ((symbol == null))
@@ -799,7 +797,7 @@ public partial class bitrue : ccxt.bitrue
      * @param {object} [params] extra parameters specific to the exchange API endpoint
      * @returns {boolean} true once the unsubscribe request has been sent (bitrue does not acknowledge it)
      */
-    public async override Task<object> unWatchOHLCV(object symbol, string timeframe = null, IDictionary<string, object> parameters = null)
+    public async override Task<object> unWatchOHLCV(string? symbol, string timeframe = null, IDictionary<string, object> parameters = null)
     {
         string timeframeVar = timeframe;
         timeframeVar ??= "1m";
@@ -809,7 +807,7 @@ public partial class bitrue : ccxt.bitrue
             await this.loadMarkets();
         }
         Dictionary<string, object> market = this.market(symbol);
-        string? symbolValue = ((string)(market.ContainsKey("symbol") ? market["symbol"] : null));
+        string? symbolValue = this.safeString(market, "symbol", "");
         if ((((market.ContainsKey("swap") ? market["swap"] : null) as bool?) != true))
         {
             throw new NotSupported ((this.id + " unWatchOHLCV is only supported for swap markets")) ;
@@ -820,8 +818,8 @@ public partial class bitrue : ccxt.bitrue
         {
             throw new NotSupported ((string)((this.id + " unWatchOHLCV does not support timeframe ") + (timeframeVar))) ;
         }
-        string? baseIdLower = this.safeStringLower(market, "baseId");
-        string? quoteIdLower = this.safeStringLower(market, "quoteId");
+        string? baseIdLower = this.safeStringLower(market, "baseId", "");
+        string? quoteIdLower = this.safeStringLower(market, "quoteId", "");
         string wsId = (("e_" + baseIdLower) + quoteIdLower);
         string channel = ((("market_" + wsId) + "_kline_") + interval);
         Dictionary<string, object> subscription = new Dictionary<string, object>() {
@@ -853,7 +851,7 @@ public partial class bitrue : ccxt.bitrue
         //
         string? channel = this.safeString(message, "channel");
         List<object> parts = channel.Split(new [] {"_"}, StringSplitOptions.None).ToList<object>();
-        string? wsBaseQuote = this.safeStringLower(parts, 2);
+        string? wsBaseQuote = this.safeStringLower(parts, 2, "");
         IDictionary<string, object> market = this.findSwapMarketByWsBaseQuote(wsBaseQuote);
         string? symbol = this.safeString(market, "symbol");
         if ((symbol == null))
@@ -883,12 +881,12 @@ public partial class bitrue : ccxt.bitrue
         {
             this.ohlcvs[(string)symbol] = new Dictionary<string, object>() {};
         }
-        if (!(inOp((this.ohlcvs != null && symbol != null && this.ohlcvs.ContainsKey(symbol) ? this.ohlcvs[symbol] : null), timeframe)))
+        if (!((this.ohlcvs != null && symbol != null && this.ohlcvs.TryGetValue(symbol, out var ohlcvsRow1) && ohlcvsRow1 != null && timeframe != null && ohlcvsRow1.ContainsKey(timeframe))))
         {
             Int64? limit = this.safeInteger(this.options, "OHLCVLimit", 1000);
-            ((IDictionary<string,object>)(this.ohlcvs != null && symbol != null && this.ohlcvs.ContainsKey(symbol) ? this.ohlcvs[symbol] : null))[timeframe] = new ArrayCacheByTimestamp(limit);
+            (this.ohlcvs != null && symbol != null && this.ohlcvs.ContainsKey(symbol) ? this.ohlcvs[symbol] : null)[timeframe] = new ArrayCacheByTimestamp(limit);
         }
-        ccxt.pro.ArrayCacheByTimestamp stored = ((ccxt.pro.ArrayCacheByTimestamp)getValue((this.ohlcvs != null && symbol != null && this.ohlcvs.ContainsKey(symbol) ? this.ohlcvs[symbol] : null), timeframe));
+        ccxt.pro.ArrayCacheByTimestamp stored = ((ccxt.pro.ArrayCacheByTimestamp)(this.ohlcvs != null && symbol != null && this.ohlcvs.TryGetValue(symbol, out var ohlcvsRow2) && ohlcvsRow2 != null && timeframe != null && ohlcvsRow2.TryGetValue(timeframe, out var ohlcvsValue2) ? ohlcvsValue2 : null));
         stored.append(parsed);
         client.resolve(stored, messageHash);
     }
@@ -965,7 +963,7 @@ public partial class bitrue : ccxt.bitrue
         //
         string? channel = this.safeString(message, "channel");
         List<object> parts = channel.Split(new [] {"_"}, StringSplitOptions.None).ToList<object>();
-        string? wsBaseQuote = this.safeStringLower(parts, 2);
+        string? wsBaseQuote = this.safeStringLower(parts, 2, "");
         IDictionary<string, object> market = this.findSwapMarketByWsBaseQuote(wsBaseQuote);
         string? symbol = this.safeString(market, "symbol");
         if ((symbol == null))
@@ -984,7 +982,7 @@ public partial class bitrue : ccxt.bitrue
         client.resolve(ccxt.BaseExchange.FromTicker(parsed), messageHash);
     }
 
-    public virtual ccxt.Ticker parseWsTicker(IDictionary<string, object> tick, object market, object timestamp = null)
+    public virtual ccxt.Ticker parseWsTicker(IDictionary<string, object> tick, object market, Int64? timestamp = null)
     {
         string? symbol = this.safeString(market, "symbol", "");
         double? rawVol = this.safeNumber(tick, "vol");
@@ -1041,7 +1039,7 @@ public partial class bitrue : ccxt.bitrue
         return this.safeString(statuses, status, status);
     }
 
-    public virtual void handlePing(WebSocketClient client, object message)
+    public virtual void handlePing(WebSocketClient client, IDictionary<string, object> message)
     {
         this.spawn(this.pong, new object[] { client, message});
     }
@@ -1060,9 +1058,9 @@ public partial class bitrue : ccxt.bitrue
         await client.send(pong);
     }
 
-    public override void handleMessage(WebSocketClient client, object message)
+    public override void handleMessage(WebSocketClient client, IDictionary<string, object> message)
     {
-        if ((message != null && ((IDictionary<string, object>)message).ContainsKey("channel")))
+        if ((message != null && message.ContainsKey("channel")))
         {
             string? channel = this.safeString(message, "channel");
             if (channel.IndexOf("_depth_step", StringComparison.Ordinal) > -1)
@@ -1078,7 +1076,7 @@ public partial class bitrue : ccxt.bitrue
             {
                 this.handleTicker(client, (Dictionary<string, object>)message);
             }
-        } else if ((message != null && ((IDictionary<string, object>)message).ContainsKey("ping")))
+        } else if ((message != null && message.ContainsKey("ping")))
         {
             this.handlePing(client, message);
         } else

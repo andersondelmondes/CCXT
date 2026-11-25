@@ -994,7 +994,7 @@ class deribit extends deribit$1["default"] {
                 else if (!isComboMarket) {
                     symbol = base + '/' + quote + ':' + settle;
                     if (option || future) {
-                        symbol = symbol + '-' + this.yymmdd(expiry, '');
+                        symbol = symbol + ('-' + this.yymmdd(expiry, ''));
                         if (option) {
                             strike = this.safeNumber(market, 'strike');
                             optionType = this.safeString(market, 'option_type');
@@ -1462,8 +1462,8 @@ class deribit extends deribit$1["default"] {
         const result = this.safeList(response, 'result', []);
         const tickers = {};
         for (let i = 0; i < result.length; i++) {
-            const ticker = this.parseTicker(result[i]);
-            const symbol = ticker['symbol'];
+            const ticker = this.parseTicker(this.safeDict(result, i, {}));
+            const symbol = this.safeString(ticker, 'symbol');
             if (symbol !== undefined) {
                 tickers[symbol] = ticker;
             }
@@ -1503,7 +1503,10 @@ class deribit extends deribit$1["default"] {
         const defaultLimit = 1000;
         const windowLimit = (limit === undefined) ? defaultLimit : limit;
         const limitResolved = ((since === undefined) && (limit === undefined)) ? defaultLimit : limit;
-        const sinceResolved = (since === undefined) ? undefined : Math.max(since - 1, 0);
+        let sinceResolved = undefined;
+        if (since !== undefined) {
+            sinceResolved = Math.max(since - 1, 0);
+        }
         if (since === undefined) {
             request['start_timestamp'] = now - (windowLimit - 1) * duration * 1000;
             request['end_timestamp'] = now;
@@ -1664,7 +1667,10 @@ class deribit extends deribit$1["default"] {
             request['count'] = Math.min(limit, 1000); // default 10
         }
         const until = this.safeInteger2(params, 'until', 'end_timestamp');
-        const paramsOmitted = (until !== undefined) ? this.omit(params, ['until']) : params;
+        let paramsOmitted = this.omit(params, []);
+        if (until !== undefined) {
+            paramsOmitted = this.omit(params, ['until']);
+        }
         if (until !== undefined) {
             request['end_timestamp'] = until;
         }
@@ -2070,7 +2076,7 @@ class deribit extends deribit$1["default"] {
         //     }
         //
         const result = this.safeDict(response, 'result', {});
-        return this.parseOrder(result, market);
+        return this.parseOrder(this.extend({}, result), market);
     }
     /**
      * @method
@@ -2286,9 +2292,9 @@ class deribit extends deribit$1["default"] {
         }
         const trailingAmount = this.safeString2(params, 'trailingAmount', 'trigger_offset');
         const isTrailingAmountOrder = trailingAmount !== undefined;
-        let paramsOmitted = params;
+        let paramsOmitted = this.omit(params, []);
         if (isTrailingAmountOrder) {
-            paramsOmitted = this.omit(params, 'trigger_offset');
+            paramsOmitted = this.omit(paramsOmitted, 'trigger_offset');
         }
         if (isTrailingAmountOrder) {
             request['trigger_offset'] = this.parseToNumeric(trailingAmount);
@@ -2317,7 +2323,7 @@ class deribit extends deribit$1["default"] {
         };
         const response = await this.privateGetCancel(this.extend(request, params));
         const result = this.safeDict(response, 'result', {});
-        return this.parseOrder(result);
+        return this.parseOrder(this.extend({}, result));
     }
     /**
      * @method
@@ -3353,7 +3359,7 @@ class deribit extends deribit$1["default"] {
         const rates = [];
         const result = this.safeList(response, 'result', []);
         for (let i = 0; i < result.length; i++) {
-            const fr = this.safeDict(result, i);
+            const fr = this.safeDict(result, i, {});
             const rate = this.parseFundingRate(fr, market);
             rates.push(rate);
         }

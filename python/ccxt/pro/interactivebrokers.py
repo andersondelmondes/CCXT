@@ -96,16 +96,17 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         await self.authenticate()
         useGateway = self.safe_bool(self.options, 'useGateway', False)
         url = None
+        wsUrl = self.safe_string(self.urls['api'], 'ws', '')
         if useGateway:
             # wss://api.ibkr.com/v1/api/ws -> wss://localhost:5000/v1/api/ws
             gatewayUrl = self.safe_string(self.options, 'gatewayUrl')
-            replacedUrl = self.urls['api']['ws'].replace('wss://', 'https://')
+            replacedUrl = wsUrl.replace('wss://', 'https://')
             restUrl = self.ibkrGatewayBaseUrl(replacedUrl, gatewayUrl)
             url = restUrl.replace('https://', 'wss://')
             url = url.replace('http://', 'ws://')
         else:
             # this.apiKey (the oauth consumer key) is unset in gateway mode, concatenating it here would crash in python/php
-            url = self.urls['api']['ws'] + '?oauth_token=' + self.apiKey
+            url = wsUrl + '?oauth_token=' + self.apiKey
         if not (url in self.clients):
             response = await self.webapiPostV1ApiTickle()
             #
@@ -122,21 +123,21 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                 },
             }
             self.extend_exchange_options(defaultOptions)
-            originalHeaders = self.options['ws']['options']['headers']
+            wsOptions = self.safe_dict(self.options, 'ws', {})
             # with oauth the cookie carries the raw session id (not the {"session":"..."} json used by the
             # client portal gateway) and the upgrade is rejected with http 403 unless the user agent is ClientPortalGW
             userAgent = self.safe_string(self.options, 'wsUserAgent', 'ClientPortalGW/1')
             cookie = 'api=' + session
             if useGateway:
                 cookie = 'api=' + self.json({'session': session})
-            headers = self.extend(originalHeaders, {
+            headers = self.extend(self.safe_dict(self.safe_dict(wsOptions, 'options'), 'headers'), {
                 'Cookie': cookie,
                 'User-Agent': userAgent,
             })
-            self.options['ws']['options']['headers'] = headers
+            self.options['ws'] = self.extend(wsOptions, {'options': self.extend(self.safe_dict(wsOptions, 'options'), {'headers': headers})})
             # instantiate client
             newClient = self.client(url)
-            self.options['ws']['options']['headers'] = originalHeaders
+            self.options['ws'] = wsOptions
             tickleInterval = self.safe_integer(self.options, 'tickleInterval', 240000)
             self.delay(tickleInterval, self.ibkr_keep_alive_session, newClient)
         client = self.client(url)
@@ -248,7 +249,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         await client.send('umd+' + marketId + '+' + emptyArgs)
         return None
 
-    def ibkr_market_data_request(self, marketId: Str, params: dict = {}) -> list[object]:
+    def ibkr_market_data_request(self, marketId: str, params: dict = {}) -> list:
         """
         builds the smd subscription message of a market
  @ignore
@@ -260,7 +261,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         options = self.safe_dict(self.options, 'watchTickers', {})
         defaultFields = self.safe_list(options, 'fields', [])
         fields = self.safe_list(params, 'fields', defaultFields)
-        query = self.omit(params, 'fields')
+        query = self.extend({}, self.omit(params, 'fields'))
         request = 'smd+' + marketId + '+' + self.json({'fields': fields})
         return [request, query]
 
@@ -278,7 +279,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         ticker = await self.ibkr_watch_market_data('ticker', symbols, params)
         if self.newUpdates:
             result = {}
-            tickerSymbol = ticker['symbol']
+            tickerSymbol = self.safe_string(ticker, 'symbol', '')
             result[tickerSymbol] = ticker
             return result
         return self.filter_by_array(self.tickers, 'symbol', symbols)
@@ -296,7 +297,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         ticker = await self.ibkr_watch_market_data('bidask', symbols, params)
         if self.newUpdates:
             result = {}
-            tickerSymbol = ticker['symbol']
+            tickerSymbol = self.safe_string(ticker, 'symbol', '')
             result[tickerSymbol] = ticker
             return result
         return self.filter_by_array(self.bidsasks, 'symbol', symbols)
@@ -324,7 +325,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
             futures.append(client.reusableFuture(messageHashes[i]))
         for i in range(0, len(marketSymbols)):
             market = self.market(marketSymbols[i])
-            request, query = self.ibkr_market_data_request(market['id'], params)
+            request, query = self.ibkr_market_data_request(self.safe_string(market, 'id', ''), params)
             subscription = self.extend({'conid': market['id'], 'symbol': market['symbol']}, query)
             await self.ibkr_subscribe(client, messageHashes[i], request, subscription)
         ticker = await self.watch_multiple(url, messageHashes)
@@ -414,7 +415,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         # a delta without bid/ask fields (e.g. only the mark price 7635) does not change the best bid and ask,
         # and nothing is emitted to watchBidsAsks until a bid or an ask has been received
         hasBidAsk = ('84' in message) or ('85' in message) or ('86' in message) or ('88' in message)
-        hasQuote = (ticker['bid'] is not None) or (ticker['ask'] is not None)
+        hasQuote = (self.safe_string(ticker, 'bid') is not None) or (self.safe_string(ticker, 'ask') is not None)
         if hasBidAsk and hasQuote:
             bidAsk = self.safe_ticker({
                 'symbol': symbol,
@@ -448,17 +449,18 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         """
         await self.load_markets()
         market = self.market(symbol)
-        unifiedSymbol = market['symbol']
+        unifiedSymbol = self.safe_string(market, 'symbol', '')
+        historyMarketId = self.safe_string(market, 'id', '')
         url = await self.ibkr_connect()
         client = self.client(url)
         messageHash = 'ohlcv::' + unifiedSymbol + '::' + timeframe
         # reusableFuture (), not watch () - the connection is already open (ibkrConnect), and go's watch () yields a channel
         future = client.reusableFuture(messageHash)
         # the last price stream, it builds the current candles
-        marketDataRequest, query = self.ibkr_market_data_request(market['id'], params)
+        marketDataRequest, query = self.ibkr_market_data_request(self.safe_string(market, 'id', ''), params)
         await self.ibkr_subscribe(client, messageHash, marketDataRequest, {'conid': market['id'], 'symbol': unifiedSymbol, 'timeframe': timeframe})
         # the history, it seeds the candles
-        historyHash = 'smh::' + market['id'] + '::' + timeframe
+        historyHash = 'smh::' + historyMarketId + '::' + timeframe
         if not (historyHash in client.subscriptions):
             if not (unifiedSymbol in self.ohlcvs):
                 self.ohlcvs[unifiedSymbol] = {}
@@ -467,7 +469,9 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                 self.ohlcvs[unifiedSymbol][timeframe] = ArrayCacheByTimestamp(ohlcvLimit)
             options = self.safe_dict(self.options, 'watchOHLCV', {})
             duration = self.parse_timeframe(timeframe)
-            historyLimit = 100 if (limit is None) else limit
+            historyLimit = 100
+            if limit is not None:
+                historyLimit = self.parse_to_int(limit)
             historyRequest = {
                 'exchange': self.safe_string(options, 'exchange', 'SMART'),
                 'period': self.ibkr_ws_period(duration, historyLimit),
@@ -477,7 +481,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                 # no 'format', the bars carry the "t" timestamp only with the default format
             }
             # keysort: the dict key order is not preserved in every language (java HashMap), the raw frame must be identical
-            request = 'smh+' + market['id'] + '+' + self.json(self.keysort(self.extend(historyRequest, query)))
+            request = 'smh+' + historyMarketId + '+' + self.json(self.keysort(self.extend(historyRequest, query)))
             await self.ibkr_subscribe(client, historyHash, request, {'conid': market['id'], 'symbol': unifiedSymbol, 'timeframe': timeframe, 'duration': duration})
         ohlcv = await future
         resultLimit = limit
@@ -498,10 +502,11 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         """
         await self.load_markets()
         market = self.market(symbol)
-        unifiedSymbol = market['symbol']
+        unifiedSymbol = self.safe_string(market, 'symbol', '')
+        historyMarketId = self.safe_string(market, 'id', '')
         url = await self.ibkr_connect()
         client = self.client(url)
-        subHashes = ['ohlcv::' + unifiedSymbol + '::' + timeframe, 'smh::' + market['id'] + '::' + timeframe]
+        subHashes = ['ohlcv::' + unifiedSymbol + '::' + timeframe, 'smh::' + historyMarketId + '::' + timeframe]
         subscription = {
             'topic': 'ohlcv',
             'symbolsAndTimeframes': [[unifiedSymbol, timeframe]],
@@ -525,7 +530,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         #
         topic = self.safe_string(message, 'topic', '')
         parts = topic.split('+')
-        marketId = self.safe_string(parts, 1)
+        marketId = self.safe_string(parts, 1, '')
         serverId = self.safe_string(message, 'serverId')
         if serverId is not None:
             # the history is sent once, the request must be cancelled to free one of the 5 concurrent slots
@@ -548,7 +553,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         symbol = self.safe_string(subscription, 'symbol')
         timeframe = self.safe_string(subscription, 'timeframe')
         market = self.safe_market(marketId)
-        stored = self.safe_value(self.safe_dict(self.ohlcvs, symbol, {}), timeframe)
+        stored = self.safe_value(self.safe_dict(self.ohlcvs, symbol), timeframe)
         if stored is None:
             return
         data = self.safe_list(message, 'data', [])
@@ -656,8 +661,14 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
             if candle is None:
                 stored.append([candleTimestamp, price, price, price, price, size])
             else:
-                high = max(candle[2], price)
-                low = min(candle[3], price)
+                high = price
+                prevHigh = self.safe_number(candle, 2)
+                if (prevHigh is not None) and (price is not None) and (prevHigh > price):
+                    high = prevHigh
+                low = price
+                prevLow = self.safe_number(candle, 3)
+                if (prevLow is not None) and (price is not None) and (price > prevLow):
+                    low = prevLow
                 volume = self.sum(candle[5], size)
                 stored.append([candleTimestamp, candle[1], high, low, price, volume])
             client.resolve(stored, 'ohlcv::' + symbol + '::' + timeframe)
@@ -677,7 +688,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         """
         await self.load_markets()
         market = self.market(symbol)
-        unifiedSymbol = market['symbol']
+        unifiedSymbol = self.safe_string(market, 'symbol', '')
         accountId, query = await self.loadAccountId(params)
         bookExchange = self.safe_string(query, 'exchange')
         url = await self.ibkr_connect()
@@ -705,7 +716,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         """
         await self.load_markets()
         market = self.market(symbol)
-        unifiedSymbol = market['symbol']
+        unifiedSymbol = self.safe_string(market, 'symbol', '')
         accountId, query = await self.loadAccountId(params)
         url = await self.ibkr_connect()
         client = self.client(url)
@@ -937,9 +948,9 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                 previous = self.safe_dict(rawOrders, orderId, {})
                 merged = self.extend(previous, rawOrder)
                 rawOrders[orderId] = merged
-            parsed = self.parse_order(merged)
+            parsed = self.parse_order(self.extend({}, merged))
             orders.append(parsed)
-            orderSymbol = parsed['symbol']
+            orderSymbol = self.safe_string(parsed, 'symbol')
             if orderSymbol is not None:
                 symbols[orderSymbol] = True
         if subscription is not None:
@@ -1054,8 +1065,8 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
         symbols = {}
         for i in range(0, len(args)):
             rawTrade = args[i]
-            trade = self.parse_trade(rawTrade)
-            tradeTimestamp = trade['timestamp']
+            trade = self.parse_trade(self.safe_dict(args, i, {}))
+            tradeTimestamp = self.safe_integer(trade, 'timestamp')
             if (threshold is not None) and (tradeTimestamp is not None) and (tradeTimestamp < threshold):
                 continue
             if skipDuplicates:
@@ -1066,7 +1077,7 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                     if self.json(cachedInfo) == self.json(rawTrade):
                         continue
             trades.append(trade)
-            tradeSymbol = trade['symbol']
+            tradeSymbol = self.safe_string(trade, 'symbol', '')
             symbols[tradeSymbol] = True
         keys = list(symbols.keys())
         keysLength = len(keys)
@@ -1101,8 +1112,8 @@ class interactivebrokers(ccxt.async_support.interactivebrokers):
                 }
                 snapshot = await self.fetch_balance(self.extend(query, snapshotRequest))
                 # typed copy: the statically typed ports keep this.balance as a dictionary
-                snapshotBalance = self.extend({}, snapshot)
-                self.balance = snapshotBalance
+                emptyBalance = {}
+                self.balance = self.extend(emptyBalance, snapshot)
         # reusableFuture (), not watch () - the connection is already open (ibkrConnect), and go's watch () yields a channel
         future = client.reusableFuture(messageHash)
         emptyArgs = '{}'  # a separate literal, the php transpiler turns '+{}' into '+array()'

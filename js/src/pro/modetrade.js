@@ -74,7 +74,8 @@ export default class modetrade extends modetradeRest {
         const options = this.safeDict(this.options, 'requestId', {});
         const previousValue = this.safeInteger(options, url, 0);
         const newValue = this.sum(previousValue, 1);
-        this.options['requestId'][url] = newValue;
+        options[url] = newValue;
+        this.options['requestId'] = options;
         return newValue;
     }
     async watchPublic(messageHash, message) {
@@ -557,7 +558,7 @@ export default class modetrade extends modetradeRest {
         //
         const marketId = this.safeString(trade, 'symbol');
         const marketResolved = this.safeMarket(marketId, market);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString(marketResolved, 'symbol');
         const price = this.safeString2(trade, 'executedPrice', 'price');
         const amount = this.safeString2(trade, 'executedQuantity', 'size');
         const cost = Precise.stringMul(price, amount);
@@ -836,7 +837,7 @@ export default class modetrade extends modetradeRest {
         const orderId = this.safeString(order, 'orderId');
         const marketId = this.safeString(order, 'symbol');
         const marketResolved = this.safeMarket(marketId, market);
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString(marketResolved, 'symbol');
         const timestamp = this.safeInteger(order, 'timestamp');
         const fee = {
             'cost': this.safeString(order, 'totalFee'),
@@ -916,7 +917,7 @@ export default class modetrade extends modetradeRest {
         //         }
         //     }
         //
-        const topic = this.safeString(message, 'topic');
+        const topic = this.safeString(message, 'topic', '');
         const data = this.safeValue(message, 'data');
         const dataIsArray = Array.isArray(data);
         if (dataIsArray) {
@@ -940,7 +941,8 @@ export default class modetrade extends modetradeRest {
             if (tradeId !== undefined) {
                 this.handleMyTrade(client, data);
             }
-            this.handleOrder(client, data, topic);
+            const dataDict = this.safeDict(message, 'data', {});
+            this.handleOrder(client, dataDict, topic);
         }
     }
     handleOrder(client, message, topic) {
@@ -1005,7 +1007,7 @@ export default class modetrade extends modetradeRest {
         const messageHash = 'myTrades';
         const marketId = this.safeString(message, 'symbol');
         const market = this.safeMarket(marketId);
-        const symbol = market['symbol'];
+        const symbol = this.safeString(market, 'symbol');
         const trade = this.parseWsTrade(message, market);
         let trades = this.myTrades;
         if (trades === undefined) {

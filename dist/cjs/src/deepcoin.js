@@ -589,7 +589,8 @@ class deepcoin extends deepcoin$1["default"] {
     }
     setMarkets(markets, currencies = undefined) {
         const result = super.setMarkets(markets, currencies);
-        const symbols = Object.keys(result);
+        const resultCopy = this.extend({}, result);
+        const symbols = Object.keys(resultCopy);
         for (let i = 0; i < symbols.length; i++) {
             const symbol = symbols[i];
             const market = this.safeDict(result, symbol, {});
@@ -793,7 +794,7 @@ class deepcoin extends deepcoin$1["default"] {
         const timestamp = this.safeIntegerOmitZero(ticker, 'ts');
         const marketId = this.safeString(ticker, 'instId');
         const marketResolved = this.safeMarket(marketId, market, '-');
-        const symbol = marketResolved['symbol'];
+        const symbol = this.safeString(marketResolved, 'symbol');
         const last = this.safeString(ticker, 'last');
         const open = this.safeString(ticker, 'open24h');
         let quoteVolume = this.safeString(ticker, 'volCcy24h');
@@ -1529,7 +1530,7 @@ class deepcoin extends deepcoin$1["default"] {
             response = await this.privatePostDeepcoinTradeOrder(request);
         }
         const data = this.safeDict(response, 'data', {});
-        return this.parseOrder(data, market);
+        return this.parseOrder(this.extend({}, data), market);
     }
     createOrderRequest(symbol, type, side, amount, price = undefined, params = {}) {
         /**
@@ -1895,7 +1896,7 @@ class deepcoin extends deepcoin$1["default"] {
         //
         const data = this.safeList(response, 'data', []);
         const entry = this.safeDict(data, 0, {});
-        return this.parseOrder(entry, market);
+        return this.parseOrder(this.extend({}, entry), market);
     }
     /**
      * @method
@@ -1926,7 +1927,7 @@ class deepcoin extends deepcoin$1["default"] {
             throw new errors.OrderNotFound(this.id + ' fetchOpenOrder() could not find order id ' + id);
         }
         const entry = this.safeDict(data, 0, {});
-        return this.parseOrder(entry, market);
+        return this.parseOrder(this.extend({}, entry), market);
     }
     /**
      * @method
@@ -2128,7 +2129,7 @@ class deepcoin extends deepcoin$1["default"] {
         const paramsOmitted = this.omit(params, 'trigger');
         let response = undefined;
         if (trigger) {
-            request['instType'] = this.convertToInstrumentType(market['type']);
+            request['instType'] = this.convertToInstrumentType(this.safeString(market, 'type'));
             //
             //     {
             //         "code": "0",
@@ -2248,7 +2249,7 @@ class deepcoin extends deepcoin$1["default"] {
             response = await this.privatePostDeepcoinTradeCancelOrder(this.extend(request, params));
         }
         const data = this.safeDict(response, 'data', {});
-        return this.parseOrder(data, market);
+        return this.parseOrder(this.extend({}, data), market);
     }
     /**
      * @method
@@ -2358,7 +2359,7 @@ class deepcoin extends deepcoin$1["default"] {
             response = await this.privatePostDeepcoinTradeReplaceOrder(this.extend(request, params));
         }
         const data = this.safeDict(response, 'data', {});
-        return this.parseOrder(data);
+        return this.parseOrder(this.extend({}, data));
     }
     /**
      * @method
@@ -2547,14 +2548,15 @@ class deepcoin extends deepcoin$1["default"] {
             await this.loadMarkets();
         }
         const market = this.market(symbol);
-        const instrumentType = this.convertToInstrumentType(market['type']);
+        const marketSymbol = this.safeString(market, 'symbol', '');
+        const instrumentType = this.convertToInstrumentType(this.safeString(market, 'type'));
         const request = {
             'instType': instrumentType,
             'instId': market['id'],
         };
         const response = await this.privateGetDeepcoinAccountPositions(this.extend(request, params));
         const data = this.safeList(response, 'data', []);
-        return this.parsePositions(data, [market['symbol']]);
+        return this.parsePositions(data, [marketSymbol]);
     }
     /**
      * @method
@@ -3061,7 +3063,7 @@ class deepcoin extends deepcoin$1["default"] {
             response = await this.privatePostDeepcoinTradeClosePositionByIds(this.extend(request, paramsOmitted));
         }
         const data = this.safeList(response, 'data', []);
-        return this.parseOrder(data, market);
+        return this.parseOrder(this.safeDict(data, 0, {}), market);
     }
     sign(path, api = ['public'], method = 'GET', params = {}) {
         const apiName = api[0];
@@ -3090,9 +3092,10 @@ class deepcoin extends deepcoin$1["default"] {
             };
             let requestBody = undefined;
             if (method !== 'GET') {
-                requestBody = this.json(params);
+                const body = this.json(params);
                 privateHeaders['Content-Type'] = 'application/json';
-                payload += requestBody;
+                payload += body;
+                requestBody = body;
             }
             const signature = this.hmac(this.encode(payload), this.encode(this.secret), sha2_js.sha256, 'base64');
             privateHeaders['DC-ACCESS-SIGN'] = signature;
@@ -3110,12 +3113,10 @@ class deepcoin extends deepcoin$1["default"] {
         if ((msg !== undefined) && (msg === '') && (sMsg !== undefined)) {
             msg = sMsg;
         }
-        const errorList = this.safeList(data, 'errorList');
-        if (errorList !== undefined) {
-            for (let i = 0; i < errorList.length; i++) {
-                const entry = this.safeDict(errorList, i, {});
-                errorCode = this.safeString(entry, 'errorCode');
-            }
+        const errorList = this.safeList(data, 'errorList', []);
+        for (let i = 0; i < errorList.length; i++) {
+            const entry = this.safeDict(errorList, i, {});
+            errorCode = this.safeString(entry, 'errorCode');
         }
         const feedback = this.id + ' ' + body;
         if ((sCode === undefined) && (errorCode !== undefined)) {

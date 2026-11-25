@@ -572,7 +572,8 @@ export class BaseExchange {
         if (this.fetchHistoryCacheSize <= 0) {
             return;
         }
-        if (this.fetchHistoryCache.length >= this.fetchHistoryCacheSize) {
+        const fetchHistoryCacheLength = this.fetchHistoryCache.length;
+        if (fetchHistoryCacheLength >= this.fetchHistoryCacheSize) {
             this.fetchHistoryCache.shift();
         }
         this.fetchHistoryCache.push(data);
@@ -794,7 +795,8 @@ export class BaseExchange {
         }
         else {
             const cachedProxyUrls = Object.keys(this.proxyDictionaries);
-            if (cachedProxyUrls.length >= this.proxyDictionariesMaxSize) {
+            const cachedProxyUrlsLength = cachedProxyUrls.length;
+            if (cachedProxyUrlsLength >= this.proxyDictionariesMaxSize) {
                 const oldestProxyUrl = cachedProxyUrls[0]; // js objects preserve string-key insertion order
                 const oldestEntry = this.proxyDictionaries[oldestProxyUrl];
                 delete this.proxyDictionaries[oldestProxyUrl];
@@ -1567,7 +1569,8 @@ export class BaseExchange {
         // the following is executed only if the catch-clause does not
         // catch any connection-level exceptions from the client
         // (connection established successfully)
-        if ((subscribeHashes === undefined) || (missingSubscriptions.length > 0)) {
+        const missingSubscriptionsLength = missingSubscriptions.length;
+        if ((subscribeHashes === undefined) || (missingSubscriptionsLength > 0)) {
             connected.then(() => {
                 const options = this.safeValue(this.options, 'ws');
                 const cost = this.safeValue(options, 'cost', 1);
@@ -1807,7 +1810,8 @@ export class BaseExchange {
     }
     starknetEncodeStructuredData(domain, messageTypes, messageData, address) {
         const types = Object.keys(messageTypes);
-        if (types.length > 1) {
+        const typesLength = types.length;
+        if (typesLength > 1) {
             throw new NotSupported(this.id + ' starknetEncodeStructuredData only support single type');
         }
         const request = {
@@ -2810,9 +2814,6 @@ export class BaseExchange {
          * @returns {object | undefined}
          */
         const value = this.safeValueN(dictionaryOrList, keys, defaultValue);
-        if (value === undefined) {
-            return defaultValue;
-        }
         if (this.isDictionary(value)) {
             return value;
         }
@@ -2826,9 +2827,6 @@ export class BaseExchange {
          * @returns {object | undefined}
          */
         const value = this.safeValue(dictionaryOrList, key, defaultValue);
-        if (value === undefined) {
-            return defaultValue;
-        }
         if (this.isDictionary(value)) {
             return value;
         }
@@ -2884,6 +2882,19 @@ export class BaseExchange {
         }
         return defaultValue;
     }
+    safeStringList(dictionaryOrList, keys) {
+        /**
+         * @ignore
+         * @method
+         * @description a value that is a string or a list of strings by API contract, read as a list (a string becomes a one-element list)
+         * @returns {string[]|undefined}
+         */
+        const str = this.safeStringN(dictionaryOrList, keys);
+        if (str !== undefined) {
+            return [str];
+        }
+        return this.safeListN(dictionaryOrList, keys);
+    }
     safeList(dictionaryOrList, key, defaultValue = undefined) {
         /**
          * @ignore
@@ -2906,9 +2917,8 @@ export class BaseExchange {
          * @method
          * @description store value under key if key is defined (no-op on undefined)
          */
-        const k = key;
-        if (k !== undefined) {
-            dict[k] = value;
+        if (key !== undefined) {
+            dict[key] = value;
         }
     }
     handleDeltas(bookside, deltas) {
@@ -2993,9 +3003,10 @@ export class BaseExchange {
     }
     urlEncoderForProxyUrl(targetUrl) {
         // to be overriden
-        const includesQuery = targetUrl.indexOf('?') >= 0;
-        const finalUrl = includesQuery ? this.encodeURIComponent(targetUrl) : targetUrl;
-        return finalUrl;
+        if (targetUrl.indexOf('?') >= 0) {
+            return this.encodeURIComponent(targetUrl);
+        }
+        return targetUrl;
     }
     checkProxySettings(url = undefined, method = undefined, headers = undefined, body = undefined) {
         const usedProxies = [];
@@ -3348,8 +3359,10 @@ export class BaseExchange {
             if (parsed === undefined) {
                 continue;
             }
-            const code = parsed['code'];
-            result[code] = parsed;
+            const code = this.safeString(parsed, 'code');
+            if (code !== undefined) {
+                result[code] = parsed;
+            }
         }
         return result;
     }
@@ -3380,9 +3393,6 @@ export class BaseExchange {
         throw new NotSupported(this.id + ' parseTransaction() is not supported yet');
     }
     parseTransfer(transfer, currency = undefined) {
-        if (transfer === undefined) {
-            throw new NotSupported(this.id + ' parseTransfer() is not supported yet');
-        }
         throw new NotSupported(this.id + ' parseTransfer() is not supported yet');
     }
     parseAccount(account) {
@@ -3598,7 +3608,7 @@ export class BaseExchange {
         const targets = Object.keys(fallbacks);
         for (let i = 0; i < targets.length; i++) {
             const target = targets[i];
-            const source = fallbacks[target];
+            const source = this.safeString(fallbacks, target, '');
             const sourceDefined = (source in this.has) && (this.has[source] !== undefined);
             const targetDefined = (target in this.has) && (this.has[target] !== undefined);
             if (sourceDefined && !targetDefined) {
@@ -3664,20 +3674,20 @@ export class BaseExchange {
                     this.features[marketType] = this.featuresMapper(initialFeatures, marketType);
                 }
                 else {
-                    this.features[marketType] = {};
+                    const subTypeFeatures = {};
                     for (let j = 0; j < subTypes.length; j++) {
                         const subType = subTypes[j];
-                        this.features[marketType][subType] = this.featuresMapper(initialFeatures, marketType, subType);
+                        subTypeFeatures[subType] = this.featuresMapper(initialFeatures, marketType, subType);
                     }
+                    this.features[marketType] = subTypeFeatures;
                 }
             }
         }
     }
     featuresMapper(initialFeatures, marketType, subType = undefined) {
-        let featuresObj = (subType !== undefined) ? initialFeatures[marketType][subType] : initialFeatures[marketType];
-        // if exchange does not have that market-type (eg. future>inverse)
-        if (featuresObj === undefined) {
-            return undefined;
+        let featuresObj = this.safeDict(initialFeatures, marketType);
+        if (subType !== undefined) {
+            featuresObj = this.safeDict(featuresObj, subType);
         }
         const extendsStr = this.safeString(featuresObj, 'extends');
         if (extendsStr !== undefined) {
@@ -3685,26 +3695,32 @@ export class BaseExchange {
             const extendObj = this.featuresMapper(initialFeatures, extendsStr);
             featuresObj = this.deepExtend(extendObj, featuresObj);
         }
+        // if exchange does not have that market-type (eg. future>inverse)
+        if (featuresObj === undefined) {
+            return undefined;
+        }
         //
         // ### corrections ###
         //
         // createOrder
         if ('createOrder' in featuresObj) {
-            const value = this.safeDict(featuresObj['createOrder'], 'attachedStopLossTakeProfit');
-            featuresObj['createOrder']['stopLoss'] = value;
-            featuresObj['createOrder']['takeProfit'] = value;
+            const createOrder = this.extend({}, featuresObj['createOrder']);
+            const value = this.safeDict(createOrder, 'attachedStopLossTakeProfit');
+            createOrder['stopLoss'] = value;
+            createOrder['takeProfit'] = value;
             if (marketType === 'spot') {
                 // default 'hedged': false
-                featuresObj['createOrder']['hedged'] = false;
+                createOrder['hedged'] = false;
                 // default 'leverage': false
-                if (!('leverage' in featuresObj['createOrder'])) {
-                    featuresObj['createOrder']['leverage'] = false;
+                if (!('leverage' in createOrder)) {
+                    createOrder['leverage'] = false;
                 }
             }
             // default 'GTC' to true
-            if (this.safeBool(featuresObj['createOrder']['timeInForce'], 'GTC') === undefined) {
-                featuresObj['createOrder']['timeInForce']['GTC'] = true;
+            if (this.safeBool(createOrder['timeInForce'], 'GTC') === undefined) {
+                createOrder['timeInForce']['GTC'] = true;
             }
+            featuresObj['createOrder'] = createOrder;
         }
         // other methods
         const keys = Object.keys(featuresObj);
@@ -3732,7 +3748,7 @@ export class BaseExchange {
          * @returns {object} returns feature value
          */
         const market = this.market(symbol);
-        return this.featureValueByType(market['type'], market['subType'], methodName, paramName, defaultValue);
+        return this.featureValueByType(this.safeString(market, 'type', ''), this.safeString(market, 'subType'), methodName, paramName, defaultValue);
     }
     featureValueByType(marketType, subType, methodName = undefined, paramName = undefined, defaultValue = undefined) {
         /**
@@ -3757,7 +3773,7 @@ export class BaseExchange {
         if (!(marketType in this.features)) {
             return defaultValue; // unsupported marketType, check "exchange.features" for details
         }
-        let methodsContainer = this.features[marketType];
+        let methodsContainer = this.safeDict(this.features, marketType);
         // if marketType dict undefined
         if (methodsContainer === undefined) {
             return defaultValue;
@@ -3771,7 +3787,7 @@ export class BaseExchange {
             if (!(subType in methodsContainer)) {
                 return defaultValue; // unsupported subType, check "exchange.features" for details
             }
-            methodsContainer = methodsContainer[subType];
+            methodsContainer = this.safeDict(methodsContainer, subType);
             // if subType dict undefined
             if (methodsContainer === undefined) {
                 return defaultValue;
@@ -3779,18 +3795,24 @@ export class BaseExchange {
         }
         // if user wanted only marketType and didn't provide methodName, eg: featureIsSupported('spot')
         if (methodName === undefined) {
-            return (defaultValue !== undefined) ? defaultValue : methodsContainer;
+            if (defaultValue !== undefined) {
+                return defaultValue;
+            }
+            return methodsContainer;
         }
         if (!(methodName in methodsContainer)) {
             return defaultValue; // unsupported method, check "exchange.features" for details');
         }
-        const methodDict = methodsContainer[methodName];
-        if (methodDict === undefined) {
-            return defaultValue;
-        }
         // if user wanted only method and didn't provide `paramName`, eg: featureIsSupported('swap', 'linear', 'createOrder')
         if (paramName === undefined) {
-            return (defaultValue !== undefined) ? defaultValue : methodDict;
+            if (defaultValue !== undefined) {
+                return defaultValue;
+            }
+            return methodsContainer[methodName];
+        }
+        const methodDict = this.safeDict(methodsContainer, methodName);
+        if (methodDict === undefined) {
+            return defaultValue;
         }
         const splited = paramName.split('.'); // can be only parent key (`stopLoss`) or with child (`stopLoss.triggerPrice`)
         const parentKey = splited[0];
@@ -3812,7 +3834,7 @@ export class BaseExchange {
             if (!(subKey in methodDict[parentKey])) {
                 return defaultValue; // unsupported subKey, check "exchange.features" for details
             }
-            return methodDict[parentKey][subKey];
+            return this.safeValue(dictionary, subKey);
         }
     }
     orderbookChecksumMessage(symbol) {
@@ -4068,14 +4090,11 @@ export class BaseExchange {
         const marketValues = this.sortBy(this.toArray(markets), 'spot', true, true);
         for (let i = 0; i < marketValues.length; i++) {
             const value = this.safeDict(marketValues, i, {});
-            if (value['id'] in marketsById) {
-                const marketsByIdArray = marketsById[value['id']];
-                marketsByIdArray.push(value);
-                marketsById[value['id']] = marketsByIdArray;
+            const id = this.safeString(value, 'id', '');
+            if (!(id in marketsById)) {
+                marketsById[id] = [];
             }
-            else {
-                marketsById[value['id']] = [value];
-            }
+            marketsById[id].push(value);
             // strip undefined-valued keys from the parsed market before deepExtend,
             // otherwise an explicit `taker: undefined` (from safeMarketStructure)
             // would clobber the fee defaults from this.fees['trading'] in the merge
@@ -4292,40 +4311,22 @@ export class BaseExchange {
         let trades = [];
         const isTriggerOrSLTpOrder = ((this.safeString(orderDict, 'triggerPrice') !== undefined || (this.safeString(orderDict, 'stopLossPrice') !== undefined)) || (this.safeString(orderDict, 'takeProfitPrice') !== undefined));
         if (parseFilled || parseCost || shouldParseFees) {
-            const rawTrades = this.safeValue(orderDict, 'trades', trades);
             // const oldNumber = this.number;
             // we parse trades as strings here!
             // i don't think this is needed anymore
             // (this as any).number = String;
-            const firstTrade = this.safeDict(rawTrades, 0);
+            const firstTrade = this.safeDict(this.safeValue(orderDict, 'trades'), 0);
             // parse trades if they haven't already been parsed
             const tradesAreParsed = ((firstTrade !== undefined) && ('info' in firstTrade) && ('id' in firstTrade));
             if (!tradesAreParsed) {
-                trades = this.parseTrades(rawTrades, market);
+                trades = this.parseTrades(this.safeValue(orderDict, 'trades', []), market);
             }
             else {
-                trades = rawTrades;
+                trades = this.safeList(orderDict, 'trades', []);
             }
             // this.number = oldNumber; why parse trades as strings if you read the value using `safeString` ?
-            let tradesLength = 0;
-            const isArray = Array.isArray(trades);
-            if (isArray) {
-                tradesLength = trades.length;
-            }
-            if (isArray && (tradesLength > 0)) {
-                // move properties that are defined in trades up into the order
-                if (parseSymbol) {
-                    orderDict['symbol'] = trades[0]['symbol'];
-                }
-                if (parseSide) {
-                    orderDict['side'] = trades[0]['side'];
-                }
-                if (this.safeString(orderDict, 'type') === undefined) {
-                    orderDict['type'] = trades[0]['type'];
-                }
-                if (this.safeString(orderDict, 'id') === undefined) {
-                    orderDict['id'] = trades[0]['order'];
-                }
+            const tradesLength = trades.length;
+            if (tradesLength > 0) {
                 if (parseFilled) {
                     filled = '0';
                 }
@@ -4334,6 +4335,21 @@ export class BaseExchange {
                 }
                 for (let i = 0; i < trades.length; i++) {
                     const trade = trades[i];
+                    if (i === 0) {
+                        // move properties that are defined in trades up into the order
+                        if (parseSymbol) {
+                            orderDict['symbol'] = trade['symbol'];
+                        }
+                        if (parseSide) {
+                            orderDict['side'] = trade['side'];
+                        }
+                        if (this.safeString(orderDict, 'type') === undefined) {
+                            orderDict['type'] = trade['type'];
+                        }
+                        if (this.safeString(orderDict, 'id') === undefined) {
+                            orderDict['id'] = trade['order'];
+                        }
+                    }
                     const tradeAmount = this.safeString(trade, 'amount');
                     if (parseFilled && (tradeAmount !== undefined)) {
                         filled = Precise.stringAdd(filled, tradeAmount);
@@ -4382,10 +4398,7 @@ export class BaseExchange {
             }
             const reducedLength = reducedFees.length;
             for (let i = 0; i < reducedLength; i++) {
-                reducedFees[i]['cost'] = this.safeNumber(reducedFees[i], 'cost');
-                if ('rate' in reducedFees[i]) {
-                    reducedFees[i]['rate'] = this.safeNumber(reducedFees[i], 'rate');
-                }
+                reducedFees[i] = this.parseFeeNumeric(reducedFees[i]);
             }
             if (!parseFee && (reducedLength === 0)) {
                 // copy fee to avoid modification by reference
@@ -4477,7 +4490,10 @@ export class BaseExchange {
         }
         // we have trades with string values at this point so we will mutate them
         for (let i = 0; i < trades.length; i++) {
-            const entry = trades[i];
+            const entry = this.safeDict(trades, i);
+            if (entry === undefined) {
+                continue;
+            }
             entry['amount'] = this.safeNumber(entry, 'amount');
             entry['price'] = this.safeNumber(entry, 'price');
             entry['cost'] = this.safeNumber(entry, 'cost');
@@ -4574,7 +4590,7 @@ export class BaseExchange {
         let results = [];
         if (Array.isArray(orders)) {
             for (let i = 0; i < orders.length; i++) {
-                const parsed = this.parseOrder(orders[i], market); // don't inline this call
+                const parsed = this.parseOrder(this.safeDict(orders, i, {}), market); // don't inline this call
                 const order = this.extend(parsed, params);
                 results.push(order);
             }
@@ -4695,9 +4711,8 @@ export class BaseExchange {
     }
     createCcxtTradeId(timestamp = undefined, side = undefined, amount = undefined, price = undefined, takerOrMaker = undefined) {
         // this approach is being used by multiple exchanges (mexc, woo, coinsbit, dydx, ...)
-        let id = undefined;
         if (timestamp !== undefined) {
-            id = this.numberToString(timestamp);
+            let id = this.numberToString(timestamp);
             if (side !== undefined) {
                 id += '-' + side;
             }
@@ -4710,8 +4725,9 @@ export class BaseExchange {
             if (takerOrMaker !== undefined) {
                 id += '-' + takerOrMaker;
             }
+            return id;
         }
-        return id;
+        return undefined;
     }
     parsedFeeAndFees(container) {
         let fee = this.safeDict(container, 'fee');
@@ -4737,12 +4753,13 @@ export class BaseExchange {
                 reducedFees = [];
             }
             const reducedLength = reducedFees.length;
+            const parsedFees = [];
             for (let i = 0; i < reducedLength; i++) {
-                reducedFees[i] = this.parseFeeNumeric(reducedFees[i]);
+                parsedFees.push(this.parseFeeNumeric(reducedFees[i]));
             }
-            fees = reducedFees;
+            fees = parsedFees;
             if (reducedLength === 1) {
-                fee = reducedFees[0];
+                fee = this.parseFeeNumeric(reducedFees[0]);
             }
             else if (reducedLength === 0) {
                 fee = undefined;
@@ -4761,11 +4778,12 @@ export class BaseExchange {
         return [fee, fees];
     }
     parseFeeNumeric(fee) {
-        fee['cost'] = this.safeNumber(fee, 'cost'); // ensure numeric
-        if ('rate' in fee) {
-            fee['rate'] = this.safeNumber(fee, 'rate');
+        const result = this.extend({}, fee);
+        result['cost'] = this.safeNumber(result, 'cost'); // ensure numeric
+        if ('rate' in result) {
+            result['rate'] = this.safeNumber(result, 'rate');
         }
-        return fee;
+        return result;
     }
     findNearestCeiling(arr, providedValue) {
         //  i.e. findNearestCeiling ([ 10, 30, 50],  23) returns 30
@@ -5063,19 +5081,20 @@ export class BaseExchange {
         result[close] = [];
         result[volume] = [];
         for (let i = 0; i < ohlcvs.length; i++) {
-            const ts = ms ? ohlcvs[i][0] : this.parseToInt(ohlcvs[i][0] / 1000);
+            const ohlcv = ohlcvs[i];
+            const ts = ms ? ohlcv[0] : this.parseToInt(ohlcvs[i][0] / 1000);
             const resultTimestamp = result[timestamp];
             resultTimestamp.push(ts);
             const resultOpen = result[open];
-            resultOpen.push(ohlcvs[i][1]);
+            resultOpen.push(ohlcv[1]);
             const resultHigh = result[high];
-            resultHigh.push(ohlcvs[i][2]);
+            resultHigh.push(ohlcv[2]);
             const resultLow = result[low];
-            resultLow.push(ohlcvs[i][3]);
+            resultLow.push(ohlcv[3]);
             const resultClose = result[close];
-            resultClose.push(ohlcvs[i][4]);
+            resultClose.push(ohlcv[4]);
             const resultVolume = result[volume];
-            resultVolume.push(ohlcvs[i][5]);
+            resultVolume.push(ohlcv[5]);
         }
         return result;
     }
@@ -5195,14 +5214,11 @@ export class BaseExchange {
             if (!allowEmpty) {
                 throw new ArgumentsRequired(this.id + ' empty list of symbols is not supported');
             }
-            return symbols;
+            return undefined;
         }
         const symbolsLength = symbols.length;
-        if (symbolsLength === 0) {
-            if (!allowEmpty) {
-                throw new ArgumentsRequired(this.id + ' empty list of symbols is not supported');
-            }
-            return symbols;
+        if ((symbolsLength === 0) && !allowEmpty) {
+            throw new ArgumentsRequired(this.id + ' empty list of symbols is not supported');
         }
         const result = [];
         let marketType = undefined;
@@ -5284,7 +5300,14 @@ export class BaseExchange {
                 this.safeNumber(ohlcv, 5), // volume
             ];
         }
-        return ohlcv;
+        return [
+            this.safeInteger(ohlcv, 'timestamp'),
+            this.safeNumber(ohlcv, 'open'),
+            this.safeNumber(ohlcv, 'high'),
+            this.safeNumber(ohlcv, 'low'),
+            this.safeNumber(ohlcv, 'close'),
+            this.safeNumber(ohlcv, 'volume'),
+        ];
     }
     safeNetwork(network) {
         const withdrawEnabled = this.safeBool(network, 'withdraw');
@@ -5347,15 +5370,9 @@ export class BaseExchange {
             }
         }
         // fall back to scanning loaded currencies
-        let currenciesToCheck = [];
-        if (currencyCode === undefined) {
-            currenciesToCheck = Object.keys(this.currencies);
-        }
-        else {
-            currenciesToCheck = [this.safeDict(this.currencies, currencyCode)];
-        }
-        for (let i = 0; i < currenciesToCheck.length; i++) {
-            const networks = this.safeDict(currenciesToCheck[i], 'networks', {});
+        if (currencyCode !== undefined) {
+            const currencies = [this.safeDict(this.currencies, currencyCode)];
+            const networks = this.safeDict(currencies[0], 'networks', {});
             if (unifiedCode in networks) {
                 return this.safeString(networks[unifiedCode], 'id');
             }
@@ -5507,13 +5524,15 @@ export class BaseExchange {
         if (this.has['fetchTradingLimits'] !== undefined && this.has['fetchTradingLimits'] !== false) {
             if (reload || !('limitsLoaded' in this.options)) {
                 const response = await this.fetchTradingLimits(symbols);
-                const symbolsArray = this.requireValue(symbols, 'loadTradingLimits() requires a symbols argument');
+                if (symbols === undefined) {
+                    throw new ArgumentsRequired(this.id + ' loadTradingLimits() requires a symbols argument');
+                }
                 const markets = this.markets;
                 if (markets === undefined) {
                     throw new ExchangeError(this.id + ' markets not loaded');
                 }
-                for (let i = 0; i < symbolsArray.length; i++) {
-                    const symbol = symbolsArray[i];
+                for (let i = 0; i < symbols.length; i++) {
+                    const symbol = symbols[i];
                     markets[symbol] = this.deepExtend(markets[symbol], response[symbol]);
                 }
                 this.options['limitsLoaded'] = this.milliseconds();
@@ -5871,7 +5890,7 @@ export class BaseExchange {
         const positionsArray = this.toArray(positions);
         const result = [];
         for (let i = 0; i < positionsArray.length; i++) {
-            const position = this.extend(this.parsePosition(positionsArray[i]), params);
+            const position = this.extend(this.parsePosition(this.safeDict(positionsArray, i, {})), params);
             result.push(position);
         }
         return this.filterByArrayPositions(result, 'symbol', symbolsNormalized);
@@ -5887,7 +5906,7 @@ export class BaseExchange {
         const ranksArray = this.toArray(ranks);
         const result = [];
         for (let i = 0; i < ranksArray.length; i++) {
-            const rank = this.extend(this.parseADLRank(ranksArray[i]), params);
+            const rank = this.extend(this.parseADLRank(this.extend({}, ranksArray[i])), params);
             result.push(rank);
         }
         return this.filterByArrayPositions(result, 'symbol', symbolsNormalized);
@@ -5896,7 +5915,7 @@ export class BaseExchange {
         const accountsArray = this.toArray(accounts);
         const result = [];
         for (let i = 0; i < accountsArray.length; i++) {
-            const account = this.extend(this.parseAccount(accountsArray[i]), params);
+            const account = this.extend(this.parseAccount(this.extend({}, accountsArray[i])), params);
             result.push(account);
         }
         return result;
@@ -5929,7 +5948,7 @@ export class BaseExchange {
         const transactionsArray = this.toArray(transactions);
         let result = [];
         for (let i = 0; i < transactionsArray.length; i++) {
-            const transaction = this.extend(this.parseTransaction(transactionsArray[i], currency), params);
+            const transaction = this.extend(this.parseTransaction(this.safeDict(transactionsArray, i, {}), currency), params);
             result.push(transaction);
         }
         result = this.sortBy(result, 'timestamp');
@@ -5940,7 +5959,7 @@ export class BaseExchange {
         const transfersArray = this.toArray(transfers);
         let result = [];
         for (let i = 0; i < transfersArray.length; i++) {
-            const transfer = this.extend(this.parseTransfer(transfersArray[i], currency), params);
+            const transfer = this.extend(this.parseTransfer(this.safeDict(transfersArray, i, {}), currency), params);
             result.push(transfer);
         }
         result = this.sortBy(result, 'timestamp');
@@ -5951,15 +5970,8 @@ export class BaseExchange {
         let result = [];
         const arrayData = this.toArray(data);
         for (let i = 0; i < arrayData.length; i++) {
-            const itemOrItems = this.parseLedgerEntry(arrayData[i], currency);
-            if (Array.isArray(itemOrItems)) {
-                for (let j = 0; j < itemOrItems.length; j++) {
-                    result.push(this.extend(itemOrItems[j], params));
-                }
-            }
-            else {
-                result.push(this.extend(itemOrItems, params));
-            }
+            const entry = this.parseLedgerEntry(this.safeDict(arrayData, i, {}), currency);
+            result.push(this.extend(entry, params));
         }
         result = this.sortBy(result, 'timestamp');
         const code = (currency !== undefined) ? currency['code'] : undefined;
@@ -6008,7 +6020,7 @@ export class BaseExchange {
     marketId(symbol) {
         const market = this.market(symbol);
         if (market !== undefined) {
-            return market['id'];
+            return this.safeString(market, 'id');
         }
         return symbol;
     }
@@ -6162,7 +6174,7 @@ export class BaseExchange {
         const retryDelay = 0;
         const [retryDelayMaxRetriesOnFailureDelay, paramsMaxRetriesOnFailureDelay] = this.handleOptionIntegerAndParams(paramsMaxRetriesOnFailure, path, 'maxRetriesOnFailureDelay', retryDelay);
         const fetchDataCacheEnabled = this.fetchHistoryCacheSize > 0;
-        for (let i = 0; i < retriesMaxRetriesOnFailure + 1; i++) {
+        for (let i = 0; i <= retriesMaxRetriesOnFailure; i++) {
             let fetchData = undefined;
             if (fetchDataCacheEnabled) {
                 fetchData = { 'request': undefined, 'response': { 'body': undefined }, 'error': undefined };
@@ -6176,7 +6188,8 @@ export class BaseExchange {
                 this.setLastRequest(request);
                 const response = await this.fetch(request['url'], request['method'], request['headers'], request['body']);
                 if (fetchData !== undefined) {
-                    fetchData['response']['body'] = response;
+                    const responseData = { 'body': response };
+                    fetchData['response'] = responseData;
                     this.addFetchCache(fetchData);
                 }
                 return response;
@@ -6342,7 +6355,8 @@ export class BaseExchange {
         }
         let code = currencyId;
         if (currencyId !== undefined) {
-            code = this.commonCurrencyCode(currencyId.toUpperCase());
+            const upperId = currencyId.toUpperCase();
+            code = this.commonCurrencyCode(upperId);
         }
         return this.safeCurrencyStructure({
             'id': currencyId,
@@ -6499,7 +6513,7 @@ export class BaseExchange {
             throw new ArgumentsRequired(this.id + ' getSupportedMapping() requires a key argument');
         }
         if (key in mapping) {
-            return mapping[key];
+            return this.safeString(mapping, key, key);
         }
         else {
             const keys = Object.keys(mapping);
@@ -6714,13 +6728,13 @@ export class BaseExchange {
             throw new broad[broadKey](message);
         }
     }
-    findBroadlyMatchedKey(broad, string) {
+    findBroadlyMatchedKey(broad, errorString) {
         // a helper for matching error strings exactly vs broadly
         const keys = Object.keys(broad);
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
-            if (string !== undefined) { // #issues/12698
-                if (string.indexOf(key) >= 0) {
+            if (errorString !== undefined) { // #issues/12698
+                if (errorString.indexOf(key) >= 0) {
                     return key;
                 }
             }
@@ -7077,13 +7091,15 @@ export class BaseExchange {
             return undefined;
         }
         const market = this.market(symbol);
-        const result = this.decimalToPrecision(price, ROUND, market['precision']['price'], this.precisionMode, this.paddingMode);
+        const marketSymbol = this.safeString(market, 'symbol', '');
+        const precision = this.safeDict(market, 'precision', {});
+        const result = this.decimalToPrecision(price, ROUND, precision['price'], this.precisionMode, this.paddingMode);
         if (result === '0') {
-            const pricePrecision = this.numberToString(market['precision']['price']);
+            const pricePrecision = this.numberToString(precision['price']);
             if (pricePrecision === undefined) {
-                throw new BadSymbol(this.id + ' priceToPrecision() market ' + market['symbol'] + ' has no price precision');
+                throw new BadSymbol(this.id + ' priceToPrecision() market ' + marketSymbol + ' has no price precision');
             }
-            throw new InvalidOrder(this.id + ' price of ' + market['symbol'] + ' must be greater than minimum price precision of ' + pricePrecision);
+            throw new InvalidOrder(this.id + ' price of ' + marketSymbol + ' must be greater than minimum price precision of ' + pricePrecision);
         }
         return result;
     }
@@ -7092,13 +7108,15 @@ export class BaseExchange {
             return undefined;
         }
         const market = this.market(symbol);
-        const result = this.decimalToPrecision(amount, TRUNCATE, market['precision']['amount'], this.precisionMode, this.paddingMode);
+        const marketSymbol = this.safeString(market, 'symbol', '');
+        const precision = this.safeDict(market, 'precision', {});
+        const result = this.decimalToPrecision(amount, TRUNCATE, precision['amount'], this.precisionMode, this.paddingMode);
         if (result === '0') {
-            const amountPrecision = this.numberToString(market['precision']['amount']);
+            const amountPrecision = this.numberToString(precision['amount']);
             if (amountPrecision === undefined) {
-                throw new BadSymbol(this.id + ' amountToPrecision() market ' + market['symbol'] + ' has no amount precision');
+                throw new BadSymbol(this.id + ' amountToPrecision() market ' + marketSymbol + ' has no amount precision');
             }
-            throw new InvalidOrder(this.id + ' amount of ' + market['symbol'] + ' must be greater than minimum amount precision of ' + amountPrecision);
+            throw new InvalidOrder(this.id + ' amount of ' + marketSymbol + ' must be greater than minimum amount precision of ' + amountPrecision);
         }
         return result;
     }
@@ -7107,7 +7125,8 @@ export class BaseExchange {
             return undefined;
         }
         const market = this.market(symbol);
-        return this.decimalToPrecision(fee, ROUND, market['precision']['price'], this.precisionMode, this.paddingMode);
+        const precision = this.safeDict(market, 'precision', {});
+        return this.decimalToPrecision(fee, ROUND, precision['price'], this.precisionMode, this.paddingMode);
     }
     currencyToPrecision(code, fee, networkCode = undefined) {
         if (code === undefined) {
@@ -7159,6 +7178,9 @@ export class BaseExchange {
             return undefined;
         }
         const precisionNumber = parseInt(precision);
+        if (precisionNumber === undefined) {
+            return undefined;
+        }
         if (precisionNumber === 0) {
             return '1';
         }
@@ -7197,6 +7219,9 @@ export class BaseExchange {
                 return undefined;
             }
             const positivePrecision = parseInt(positivePrecisionString);
+            if (positivePrecision === undefined) {
+                return undefined;
+            }
             let parsedPrecision = '1';
             for (let i = 0; i < positivePrecision - 1; i++) {
                 parsedPrecision = parsedPrecision + '0';
@@ -7267,19 +7292,25 @@ export class BaseExchange {
         //         ...
         //     ]
         //
-        const results = [];
         if (Array.isArray(pricesData)) {
-            for (let i = 0; i < pricesData.length; i++) {
-                results.push(this.extend(this.parseLastPrice(pricesData[i]), params));
-            }
+            return this.parseLastPricesList(pricesData, symbols, params);
         }
-        else {
-            const marketIds = Object.keys(pricesData);
-            for (let i = 0; i < marketIds.length; i++) {
-                const marketId = marketIds[i];
-                const market = this.safeMarket(marketId);
-                results.push(this.extend(this.parseLastPrice(pricesData[marketId], market), params));
-            }
+        return this.parseLastPricesDict(pricesData, symbols, params);
+    }
+    parseLastPricesList(pricesData, symbols = undefined, params = {}) {
+        const results = [];
+        for (let i = 0; i < pricesData.length; i++) {
+            results.push(this.extend(this.parseLastPrice(this.extend({}, pricesData[i])), params));
+        }
+        return this.indexBy(this.filterByArray(results, 'symbol', this.marketSymbols(symbols), false), 'symbol');
+    }
+    parseLastPricesDict(pricesData, symbols = undefined, params = {}) {
+        const results = [];
+        const marketIds = Object.keys(pricesData);
+        for (let i = 0; i < marketIds.length; i++) {
+            const marketId = marketIds[i];
+            const market = this.safeMarket(marketId);
+            results.push(this.extend(this.parseLastPrice(this.extend({}, pricesData[marketId]), market), params));
         }
         return this.indexBy(this.filterByArray(results, 'symbol', this.marketSymbols(symbols), false), 'symbol');
     }
@@ -7306,26 +7337,37 @@ export class BaseExchange {
         //         ...
         //     ]
         //
-        const results = [];
         if (Array.isArray(tickers)) {
-            for (let i = 0; i < tickers.length; i++) {
-                results.push(this.extend(this.parseTicker(tickers[i]), params));
-            }
+            return this.parseTickersList(tickers, symbols, params);
         }
-        else {
-            const marketIds = Object.keys(tickers);
-            for (let i = 0; i < marketIds.length; i++) {
-                const marketId = marketIds[i];
-                const market = this.safeMarket(marketId);
-                results.push(this.extend(this.parseTicker(tickers[marketId], market), params));
-            }
+        return this.parseTickersDict(tickers, symbols, params);
+    }
+    parseTickersList(tickers, symbols = undefined, params = {}) {
+        const results = [];
+        const tickersArray = this.toArray(tickers);
+        for (let i = 0; i < tickersArray.length; i++) {
+            const ticker = this.extend(this.parseTicker(this.safeDict(tickersArray, i, {})), params);
+            results.push(ticker);
+        }
+        return this.filterByArrayTickers(results, 'symbol', this.marketSymbols(symbols));
+    }
+    parseTickersDict(tickers, symbols = undefined, params = {}) {
+        const results = [];
+        const tickersDict = this.extend({}, tickers);
+        const marketIds = Object.keys(tickersDict);
+        for (let i = 0; i < marketIds.length; i++) {
+            const marketId = marketIds[i];
+            const market = this.safeMarket(marketId);
+            const rawTicker = this.safeDict(tickersDict, marketId, {});
+            const ticker = this.extend(this.parseTicker(rawTicker, market), params);
+            results.push(ticker);
         }
         return this.filterByArrayTickers(results, 'symbol', this.marketSymbols(symbols));
     }
     parseDepositAddresses(addresses, codes = undefined, indexed = true, params = {}) {
         let result = [];
         for (let i = 0; i < addresses.length; i++) {
-            const address = this.extend(this.parseDepositAddress(addresses[i]), params);
+            const address = this.extend(this.parseDepositAddress(this.safeDict(addresses, i, {})), params);
             result.push(address);
         }
         if (codes !== undefined) {
@@ -7350,9 +7392,7 @@ export class BaseExchange {
     parseBorrowRateHistory(response, code, since, limit) {
         const result = [];
         for (let i = 0; i < response.length; i++) {
-            const item = this.safeDict(response, i);
-            const borrowRate = this.parseBorrowRate(item);
-            result.push(borrowRate);
+            result.push(this.parseBorrowRate(this.safeDict(response, i)));
         }
         const sorted = this.sortBy(result, 'timestamp');
         return this.filterByCurrencySinceLimit(sorted, code, since, limit);
@@ -7370,8 +7410,7 @@ export class BaseExchange {
     parseFundingRateHistories(response, market = undefined, since = undefined, limit = undefined) {
         const rates = [];
         for (let i = 0; i < response.length; i++) {
-            const entry = response[i];
-            rates.push(this.parseFundingRateHistory(entry, market));
+            rates.push(this.parseFundingRateHistory(response[i], market));
         }
         const sorted = this.sortBy(rates, 'timestamp');
         const symbol = (market === undefined) ? undefined : market['symbol'];
@@ -7387,10 +7426,10 @@ export class BaseExchange {
     parseFundingRates(response, symbols = undefined) {
         const fundingRates = {};
         for (let i = 0; i < response.length; i++) {
-            const entry = response[i];
-            const parsed = this.parseFundingRate(entry);
-            if (parsed['symbol'] !== undefined) {
-                fundingRates[parsed['symbol']] = parsed;
+            const parsed = this.parseFundingRate(this.safeDict(response, i, {}));
+            const symbol = this.safeString(parsed, 'symbol');
+            if (symbol !== undefined) {
+                fundingRates[symbol] = parsed;
             }
         }
         return this.indexBy(this.filterByArray(fundingRates, 'symbol', symbols, false), 'symbol');
@@ -7401,8 +7440,7 @@ export class BaseExchange {
     parseLongShortRatioHistory(response, market = undefined, since = undefined, limit = undefined) {
         const rates = [];
         for (let i = 0; i < response.length; i++) {
-            const entry = response[i];
-            rates.push(this.parseLongShortRatio(entry, market));
+            rates.push(this.parseLongShortRatio(this.extend({}, response[i]), market));
         }
         const sorted = this.sortBy(rates, 'timestamp');
         const symbol = (market === undefined) ? undefined : market['symbol'];
@@ -7557,10 +7595,10 @@ export class BaseExchange {
     parseOpenInterests(response, symbols = undefined) {
         const result = {};
         for (let i = 0; i < response.length; i++) {
-            const entry = response[i];
-            const parsed = this.parseOpenInterest(entry);
-            if (parsed['symbol'] !== undefined) {
-                result[parsed['symbol']] = parsed;
+            const parsed = this.parseOpenInterest(response[i]);
+            const symbol = this.safeString(parsed, 'symbol');
+            if (symbol !== undefined) {
+                result[symbol] = parsed;
             }
         }
         return this.indexBy(this.filterByArray(result, 'symbol', symbols, false), 'symbol');
@@ -7568,9 +7606,7 @@ export class BaseExchange {
     parseOpenInterestsHistory(response, market = undefined, since = undefined, limit = undefined) {
         const interests = [];
         for (let i = 0; i < response.length; i++) {
-            const entry = response[i];
-            const interest = this.parseOpenInterest(entry, market);
-            interests.push(interest);
+            interests.push(this.parseOpenInterest(response[i], market));
         }
         const sorted = this.sortBy(interests, 'timestamp');
         const symbol = this.safeString(market, 'symbol');
@@ -7712,13 +7748,13 @@ export class BaseExchange {
         const accountsByType = this.safeDict(this.options, 'accountsByType', {});
         const lowercaseAccount = account.toLowerCase();
         if (lowercaseAccount in accountsByType) {
-            return accountsByType[lowercaseAccount];
+            return this.safeString(accountsByType, lowercaseAccount, account);
         }
         const markets = this.markets;
         const marketsById = this.markets_by_id;
         if (((markets !== undefined) && (account in markets)) || ((marketsById !== undefined) && (account in marketsById))) {
             const market = this.market(account);
-            return market['id'];
+            return this.safeString(market, 'id', account);
         }
         else {
             return account;
@@ -7770,16 +7806,32 @@ export class BaseExchange {
          */
         const depositWithdrawFees = {};
         const isArray = Array.isArray(response);
-        let responseKeys = response;
-        if (!isArray) {
-            responseKeys = Object.keys(response);
+        let dictResponse = {};
+        let numEntries = 0;
+        if (isArray) {
+            const responseLength = response.length;
+            numEntries = responseLength;
         }
-        for (let i = 0; i < responseKeys.length; i++) {
-            const entry = responseKeys[i];
-            const dictionary = isArray ? entry : response[entry];
-            let currencyId = entry;
+        else {
+            dictResponse = response;
+        }
+        const keys = Object.keys(dictResponse);
+        if (!isArray) {
+            const keysLength = keys.length;
+            numEntries = keysLength;
+        }
+        for (let i = 0; i < numEntries; i++) {
+            let dictionary = undefined;
+            let currencyId = undefined;
             if (isArray) {
-                currencyId = (currencyIdKey === undefined) ? undefined : this.safeString(dictionary, currencyIdKey);
+                dictionary = response[i];
+                if (currencyIdKey !== undefined) {
+                    currencyId = this.safeString(dictionary, currencyIdKey);
+                }
+            }
+            else {
+                currencyId = keys[i];
+                dictionary = response[currencyId];
             }
             const currency = this.safeCurrency(currencyId);
             const code = this.safeString(currency, 'code');
@@ -7817,17 +7869,13 @@ export class BaseExchange {
          */
         const networkKeys = Object.keys(fee['networks']);
         const numNetworks = networkKeys.length;
-        if (numNetworks === 1) {
-            fee['withdraw'] = fee['networks'][networkKeys[0]]['withdraw'];
-            fee['deposit'] = fee['networks'][networkKeys[0]]['deposit'];
-            return fee;
-        }
         const currencyCode = this.safeString(currency, 'code');
         for (let i = 0; i < numNetworks; i++) {
             const network = networkKeys[i];
-            if (network === currencyCode) {
-                fee['withdraw'] = fee['networks'][networkKeys[i]]['withdraw'];
-                fee['deposit'] = fee['networks'][networkKeys[i]]['deposit'];
+            if ((numNetworks === 1) || (network === currencyCode)) {
+                const networkFee = this.safeDict(fee['networks'], networkKeys[i], {});
+                fee['withdraw'] = networkFee['withdraw'];
+                fee['deposit'] = networkFee['deposit'];
             }
         }
         return fee;
@@ -7848,9 +7896,7 @@ export class BaseExchange {
          */
         const result = [];
         for (let i = 0; i < incomes.length; i++) {
-            const entry = incomes[i];
-            const parsed = this.parseIncome(entry, market);
-            result.push(parsed);
+            result.push(this.parseIncome(this.extend({}, incomes[i]), market));
         }
         const sorted = this.sortBy(result, 'timestamp');
         const symbol = this.safeString(market, 'symbol');
@@ -7926,14 +7972,15 @@ export class BaseExchange {
     }
     createOHLCVObject(symbol, timeframe, data) {
         const res = {};
-        res[symbol] = {};
-        res[symbol][timeframe] = data;
+        const inner = {};
+        inner[timeframe] = data;
+        res[symbol] = inner;
         return res;
     }
     handleMaxEntriesPerRequestAndParams(method, maxEntriesPerRequest = undefined, params = {}) {
-        const [newMaxEntriesPerRequest, paramsMaxEntriesPerRequest] = this.handleOptionIntegerAndParams(params, method, 'maxEntriesPerRequest');
-        const maxEntriesPerRequestOption = (newMaxEntriesPerRequest !== undefined) ? newMaxEntriesPerRequest : maxEntriesPerRequest;
-        const maxEntriesPerRequestResolved = (maxEntriesPerRequestOption === undefined) ? 1000 : maxEntriesPerRequestOption; // default to 1000
+        // the option wins, then the argument, then 1000; the default goes through the integer reader so every port gets an integer
+        const maxEntriesPerRequestDefault = (maxEntriesPerRequest === undefined) ? 1000 : maxEntriesPerRequest;
+        const [maxEntriesPerRequestResolved, paramsMaxEntriesPerRequest] = this.handleOptionIntegerAndParams(params, method, 'maxEntriesPerRequest', maxEntriesPerRequestDefault);
         return [maxEntriesPerRequestResolved, paramsMaxEntriesPerRequest];
     }
     async fetchPaginatedCallDynamic(method, symbol = undefined, since = undefined, limit = undefined, params = {}, maxEntriesPerRequest = undefined, removeRepeated = true) {
@@ -7964,7 +8011,7 @@ export class BaseExchange {
                     const response = await this[method](symbol, undefined, maxEntriesPerRequestOption, paramsMaxEntriesPerRequest);
                     const responseLength = response.length;
                     if (this.verbose) {
-                        let backwardMessage = 'Dynamic pagination call ' + this.numberToString(i + 1) + ' method ' + method + ' response length ' + responseLength.toString();
+                        let backwardMessage = 'Dynamic pagination call ' + (i + 1).toString() + ' method ' + method + ' response length ' + responseLength.toString();
                         if (paginationTimestamp !== undefined) {
                             backwardMessage += ' timestamp ' + this.numberToString(paginationTimestamp);
                         }
@@ -7992,7 +8039,7 @@ export class BaseExchange {
                     const response = await this[method](symbol, paginationTimestamp, maxEntriesPerRequestOption, paramsMaxEntriesPerRequest);
                     const responseLength = response.length;
                     if (this.verbose) {
-                        let forwardMessage = 'Dynamic pagination call ' + this.numberToString(i + 1) + ' method ' + method + ' response length ' + responseLength.toString();
+                        let forwardMessage = 'Dynamic pagination call ' + (i + 1).toString() + ' method ' + method + ' response length ' + responseLength.toString();
                         if (paginationTimestamp !== undefined) {
                             forwardMessage += ' timestamp ' + this.numberToString(paginationTimestamp);
                         }
@@ -8239,8 +8286,7 @@ export class BaseExchange {
                 errors = 0;
                 const responseLength = response.length;
                 if (this.verbose) {
-                    const iteration = (i + 1);
-                    const incrementalMessage = 'Incremental pagination call ' + iteration.toString() + ' method ' + method + ' response length ' + responseLength.toString();
+                    const incrementalMessage = 'Incremental pagination call ' + (i + 1).toString() + ' method ' + method + ' response length ' + responseLength.toString();
                     this.log(incrementalMessage);
                 }
                 if (responseLength === 0) {
@@ -8297,8 +8343,9 @@ export class BaseExchange {
         const uniqueResult = {};
         for (let i = 0; i < input.length; i++) {
             const entry = input[i];
-            let id = this.safeString(entry, 'id');
-            if (id === undefined) {
+            // safeString treats an empty id as missing, so '' marks an absent id
+            let id = this.safeString(entry, 'id', '');
+            if (id === '') {
                 const price = this.safeString(entry, 'price', '');
                 const amount = this.safeString(entry, 'amount', '');
                 const timestamp = this.safeString(entry, 'timestamp');
@@ -8311,7 +8358,7 @@ export class BaseExchange {
                 id = 't_' + timestamp.toString() + '_' + side + '_';
                 id = id + (price + '_' + amount);
             }
-            if (id !== undefined && !(id in uniqueResult)) {
+            if (!(id in uniqueResult)) {
                 uniqueResult[id] = entry;
             }
         }
@@ -8369,8 +8416,7 @@ export class BaseExchange {
          */
         const result = [];
         for (let i = 0; i < liquidations.length; i++) {
-            const entry = liquidations[i];
-            const parsed = this.parseLiquidation(entry, market);
+            const parsed = this.parseLiquidation(liquidations[i], market);
             result.push(parsed);
         }
         const sorted = this.sortBy(result, 'timestamp');
@@ -8384,19 +8430,25 @@ export class BaseExchange {
         //
         // the value of greeks is either a dict or a list
         //
-        const results = [];
         if (Array.isArray(greeks)) {
-            for (let i = 0; i < greeks.length; i++) {
-                results.push(this.extend(this.parseGreeks(greeks[i]), params));
-            }
+            return this.parseAllGreeksList(greeks, symbols, params);
         }
-        else {
-            const marketIds = Object.keys(greeks);
-            for (let i = 0; i < marketIds.length; i++) {
-                const marketId = marketIds[i];
-                const market = this.safeMarket(marketId);
-                results.push(this.extend(this.parseGreeks(greeks[marketId], market), params));
-            }
+        return this.parseAllGreeksDict(greeks, symbols, params);
+    }
+    parseAllGreeksList(greeks, symbols = undefined, params = {}) {
+        const results = [];
+        for (let i = 0; i < greeks.length; i++) {
+            results.push(this.extend(this.parseGreeks(this.safeDict(greeks, i, {})), params));
+        }
+        return this.indexBy(this.filterByArray(results, 'symbol', this.marketSymbols(symbols), false), 'symbol');
+    }
+    parseAllGreeksDict(greeks, symbols = undefined, params = {}) {
+        const results = [];
+        const marketIds = Object.keys(greeks);
+        for (let i = 0; i < marketIds.length; i++) {
+            const marketId = marketIds[i];
+            const market = this.safeMarket(marketId);
+            results.push(this.extend(this.parseGreeks(this.safeDict(greeks, marketId, {}), market), params));
         }
         return this.indexBy(this.filterByArray(results, 'symbol', this.marketSymbols(symbols), false), 'symbol');
     }
@@ -8406,12 +8458,11 @@ export class BaseExchange {
     parseOptionChain(response, currencyKey = undefined, symbolKey = undefined) {
         const optionStructures = {};
         for (let i = 0; i < response.length; i++) {
-            const info = response[i];
-            const currencyId = (currencyKey === undefined) ? undefined : this.safeString(info, currencyKey);
+            const currencyId = (currencyKey === undefined) ? undefined : this.safeString(response[i], currencyKey);
             const currency = this.safeCurrency(currencyId);
-            const marketId = (symbolKey === undefined) ? undefined : this.safeString(info, symbolKey);
+            const marketId = (symbolKey === undefined) ? undefined : this.safeString(response[i], symbolKey);
             const market = this.safeMarket(marketId, undefined, undefined, 'option');
-            optionStructures[market['symbol']] = this.parseOption(info, currency, market);
+            optionStructures[market['symbol']] = this.parseOption(this.safeDict(response, i, {}), currency, market);
         }
         return optionStructures;
     }
@@ -8423,7 +8474,7 @@ export class BaseExchange {
             const marketId = (symbolKey === undefined) ? undefined : this.safeString(info, symbolKey);
             const market = this.safeMarket(marketId, undefined, undefined, marketTypeResolved);
             if ((symbols === undefined) || this.inArray(market['symbol'], symbols)) {
-                marginModeStructures[market['symbol']] = this.parseMarginMode(info, market);
+                marginModeStructures[market['symbol']] = this.parseMarginMode(this.safeDict(response, i, {}), market);
             }
         }
         return marginModeStructures;
@@ -8439,7 +8490,7 @@ export class BaseExchange {
             const marketId = (symbolKey === undefined) ? undefined : this.safeString(info, symbolKey);
             const market = this.safeMarket(marketId, undefined, undefined, marketTypeResolved);
             if ((symbols === undefined) || this.inArray(market['symbol'], symbols)) {
-                leverageStructures[market['symbol']] = this.parseLeverage(info, market);
+                leverageStructures[market['symbol']] = this.parseLeverage(this.extend({}, info), market);
             }
         }
         return leverageStructures;
@@ -8598,11 +8649,10 @@ export class BaseExchange {
             return marginModifications;
         }
         for (let i = 0; i < response.length; i++) {
-            const info = response[i];
-            const marketId = (symbolKey === undefined) ? undefined : this.safeString(info, symbolKey);
+            const marketId = (symbolKey === undefined) ? undefined : this.safeString(response[i], symbolKey);
             const market = this.safeMarket(marketId, undefined, undefined, marketType);
             if ((symbols === undefined) || this.inArray(market['symbol'], symbols)) {
-                marginModifications.push(this.parseMarginModification(info, market));
+                marginModifications.push(this.parseMarginModification(response[i], market));
             }
         }
         return marginModifications;
@@ -9344,10 +9394,10 @@ export default class Exchange extends BaseExchange {
         throw new NotSupported(this.id + ' fetchOrderBook() is not supported yet');
     }
     async fetchRestOrderBookSafe(symbol, limit = undefined, params = {}) {
-        const fetchSnapshotMaxRetries = this.handleOption('watchOrderBook', 'maxRetries', 3);
+        const [fetchSnapshotMaxRetries, fetchParams] = this.handleOptionIntegerAndParams(params, 'watchOrderBook', 'maxRetries', 3);
         for (let i = 0; i < fetchSnapshotMaxRetries; i++) {
             try {
-                const orderBook = await this.fetchOrderBook(symbol, limit, params);
+                const orderBook = await this.fetchOrderBook(symbol, limit, fetchParams);
                 return orderBook;
             }
             catch (e) {

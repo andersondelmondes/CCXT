@@ -251,12 +251,12 @@ class upbit extends \ccxt\async\upbit {
         //   "acc_trade_volume_24h": 118.38798416,
         //   "stream_type": "SNAPSHOT" }
         $ticker = $this->parse_ticker($message);
-        $symbol = $ticker['symbol'];
+        $symbol = $this->safe_string($ticker, 'symbol');
         if ($symbol !== null) {
             $this->tickers[$symbol] = $ticker;
+            $messageHash = 'ticker:' . $symbol;
+            $client->resolve($ticker, $messageHash);
         }
-        $messageHash = 'ticker:' . $symbol;
-        $client->resolve($ticker, $messageHash);
     }
 
     public function handle_order_book(Client $client, array $message) {
@@ -331,7 +331,7 @@ class upbit extends \ccxt\async\upbit {
         //   "sequential_id": 1584508285000002,
         //   "stream_type": "REALTIME" }
         $trade = $this->parse_trade($message);
-        $symbol = $trade['symbol'];
+        $symbol = $this->safe_string($trade, 'symbol');
         if ($symbol === null) {
             return;
         }

@@ -6,7 +6,7 @@
 from ccxt.base.exchange import Exchange
 from ccxt.abstract.deepcoin import ImplicitAPI
 import hashlib
-from ccxt.base.types import Balances, Currency, DepositAddress, Int, LedgerEntry, Market, Num, Order, OrderBook, OrderSide, OrderType, Position, Str, Strings, Ticker, Tickers, FundingRate, FundingRates, Trade, Transaction, FundingRateHistory, TransferEntry
+from ccxt.base.types import Balances, Bool, Currency, DepositAddress, Int, LedgerEntry, Market, Num, Order, OrderBook, OrderSide, OrderType, Position, Str, Strings, Ticker, Tickers, FundingRate, FundingRates, Trade, Transaction, FundingRateHistory, TransferEntry
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import BadRequest
@@ -588,7 +588,8 @@ class deepcoin(Exchange, ImplicitAPI):
 
     def set_markets(self, markets: object, currencies: object = None):
         result = super(deepcoin, self).set_markets(markets, currencies)
-        symbols = list(result.keys())
+        resultCopy = self.extend({}, result)
+        symbols = list(resultCopy.keys())
         for i in range(0, len(symbols)):
             symbol = symbols[i]
             market = self.safe_dict(result, symbol, {})
@@ -775,7 +776,7 @@ class deepcoin(Exchange, ImplicitAPI):
         timestamp = self.safe_integer_omit_zero(ticker, 'ts')
         marketId = self.safe_string(ticker, 'instId')
         marketResolved = self.safe_market(marketId, market, '-')
-        symbol = marketResolved['symbol']
+        symbol = self.safe_string(marketResolved, 'symbol')
         last = self.safe_string(ticker, 'last')
         open = self.safe_string(ticker, 'open24h')
         quoteVolume = self.safe_string(ticker, 'volCcy24h')
@@ -1466,7 +1467,7 @@ class deepcoin(Exchange, ImplicitAPI):
             #
             response = self.privatePostDeepcoinTradeOrder(request)
         data = self.safe_dict(response, 'data', {})
-        return self.parse_order(data, market)
+        return self.parse_order(self.extend({}, data), market)
 
     def create_order_request(self, symbol: Str, type: OrderType, side: OrderSide, amount: Num, price: Num = None, params: dict = {}) -> dict:
         """
@@ -1779,7 +1780,7 @@ class deepcoin(Exchange, ImplicitAPI):
         #
         data = self.safe_list(response, 'data', [])
         entry = self.safe_dict(data, 0, {})
-        return self.parse_order(entry, market)
+        return self.parse_order(self.extend({}, entry), market)
 
     def fetch_open_order(self, id: str, symbol: Str = None, params: dict = {}) -> Order:
         """
@@ -1807,7 +1808,7 @@ class deepcoin(Exchange, ImplicitAPI):
         if length == 0:
             raise OrderNotFound(self.id + ' fetchOpenOrder() could not find order id ' + id)
         entry = self.safe_dict(data, 0, {})
-        return self.parse_order(entry, market)
+        return self.parse_order(self.extend({}, entry), market)
 
     def fetch_canceled_and_closed_orders(self, symbol: Str = None, since: Int = None, limit: Int = None, params: dict = {}) -> list[Order]:
         """
@@ -1998,7 +1999,7 @@ class deepcoin(Exchange, ImplicitAPI):
         paramsOmitted = self.omit(params, 'trigger')
         response = None
         if trigger:
-            request['instType'] = self.convert_to_instrument_type(market['type'])
+            request['instType'] = self.convert_to_instrument_type(self.safe_string(market, 'type'))
             #
             #     {
             #         "code": "0",
@@ -2112,7 +2113,7 @@ class deepcoin(Exchange, ImplicitAPI):
         else:
             response = self.privatePostDeepcoinTradeCancelOrder(self.extend(request, params))
         data = self.safe_dict(response, 'data', {})
-        return self.parse_order(data, market)
+        return self.parse_order(self.extend({}, data), market)
 
     def cancel_all_orders(self, symbol: Str = None, params: dict = {}) -> list[Order]:
         """
@@ -2205,7 +2206,7 @@ class deepcoin(Exchange, ImplicitAPI):
                     request['volume'] = self.number_to_string(amount)
             response = self.privatePostDeepcoinTradeReplaceOrder(self.extend(request, params))
         data = self.safe_dict(response, 'data', {})
-        return self.parse_order(data)
+        return self.parse_order(self.extend({}, data))
 
     def cancel_orders(self, ids: list[str], symbol: Str = None, params: dict = {}) -> list[Order]:
         """
@@ -2385,14 +2386,15 @@ class deepcoin(Exchange, ImplicitAPI):
         if self.markets is None:
             self.load_markets()
         market = self.market(symbol)
-        instrumentType = self.convert_to_instrument_type(market['type'])
+        marketSymbol = self.safe_string(market, 'symbol', '')
+        instrumentType = self.convert_to_instrument_type(self.safe_string(market, 'type'))
         request = {
             'instType': instrumentType,
             'instId': market['id'],
         }
         response = self.privateGetDeepcoinAccountPositions(self.extend(request, params))
         data = self.safe_list(response, 'data', [])
-        return self.parse_positions(data, [market['symbol']])
+        return self.parse_positions(data, [marketSymbol])
 
     def fetch_positions(self, symbols: Strings = None, params: dict = {}) -> list[Position]:
         """
@@ -2728,7 +2730,7 @@ class deepcoin(Exchange, ImplicitAPI):
         rows = self.safe_list(data, 'rows', [])
         return self.parse_funding_rate_histories(rows, market, since, limit)
 
-    def parse_funding_rate_history(self, info: object, market: Market = None) -> FundingRateHistory:
+    def parse_funding_rate_history(self, info: dict, market: Market = None) -> FundingRateHistory:
         #
         #     {
         #         "instrumentID": "ETHUSD",
@@ -2869,7 +2871,7 @@ class deepcoin(Exchange, ImplicitAPI):
             paramsOmitted = self.omit(params, 'positionId') if (positionId is not None) else params
             response = self.privatePostDeepcoinTradeClosePositionByIds(self.extend(request, paramsOmitted))
         data = self.safe_list(response, 'data', [])
-        return self.parse_order(data, market)
+        return self.parse_order(self.safe_dict(data, 0, {}), market)
 
     def sign(self, path: str, api: list[str] = ['public'], method: str = 'GET', params: dict = {}) -> dict:
         apiName = api[0]
@@ -2895,15 +2897,16 @@ class deepcoin(Exchange, ImplicitAPI):
             }
             requestBody = None
             if method != 'GET':
-                requestBody = self.json(params)
+                body = self.json(params)
                 privateHeaders['Content-Type'] = 'application/json'
-                payload += requestBody
+                payload += body
+                requestBody = body
             signature = self.hmac(self.encode(payload), self.encode(self.secret), hashlib.sha256, 'base64')
             privateHeaders['DC-ACCESS-SIGN'] = signature
             return {'url': url, 'method': method, 'body': requestBody, 'headers': privateHeaders}
         return {'url': url, 'method': method, 'body': None, 'headers': None}
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         data = self.safe_dict(response, 'data', {})
         msg = self.safe_string(response, 'msg')
         messageCode = self.safe_string(response, 'code')
@@ -2912,11 +2915,10 @@ class deepcoin(Exchange, ImplicitAPI):
         errorCode = self.safe_string(data, 'errorCode')
         if (msg is not None) and (msg == '') and (sMsg is not None):
             msg = sMsg
-        errorList = self.safe_list(data, 'errorList')
-        if errorList is not None:
-            for i in range(0, len(errorList)):
-                entry = self.safe_dict(errorList, i, {})
-                errorCode = self.safe_string(entry, 'errorCode')
+        errorList = self.safe_list(data, 'errorList', [])
+        for i in range(0, len(errorList)):
+            entry = self.safe_dict(errorList, i, {})
+            errorCode = self.safe_string(entry, 'errorCode')
         feedback = self.id + ' ' + body
         if (sCode is None) and (errorCode is not None):
             sCode = errorCode

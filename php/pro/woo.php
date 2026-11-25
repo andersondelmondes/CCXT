@@ -334,7 +334,7 @@ class woo extends \ccxt\async\woo {
             $orderbook->reset($snapshot);
             $messages = $orderbook->cache;
             for ($i = 0; $i < count($messages); $i++) {
-                $messageItem = $messages[$i];
+                $messageItem = $this->safe_dict($messages, $i, array());
                 $ts = $this->safe_integer($messageItem, 'ts');
                 if ($ts === null) {
                     continue;
@@ -675,8 +675,7 @@ class woo extends \ccxt\async\woo {
             if ($ticker === null) {
                 continue;
             }
-            $ticker['ts'] = $timestamp;
-            $parsedTicker = $this->parse_ws_bid_ask($ticker);
+            $parsedTicker = $this->parse_ws_bid_ask($this->extend($ticker, array( 'ts' => $timestamp )));
             $symbol = $this->safe_string($parsedTicker, 'symbol');
             if ($symbol !== null) {
                 $this->bidsasks[$symbol] = $parsedTicker;
@@ -901,7 +900,7 @@ class woo extends \ccxt\async\woo {
         $data = $this->safe_dict($message, 'data');
         $marketId = $this->safe_string($data, 'symbol');
         $market = $this->safe_market($marketId);
-        $symbol = $market['symbol'];
+        $symbol = $this->safe_string($market, 'symbol', '');
         $trade = $this->parse_ws_trade($this->extend($data, array( 'timestamp' => $timestamp )), $market);
         $tradesArray = $this->safe_value($this->trades, $symbol);
         if ($tradesArray === null) {
@@ -1307,19 +1306,19 @@ class woo extends \ccxt\async\woo {
         //         }
         //     }
         //
-        $topic = $this->safe_string($message, 'topic');
-        $data = $this->safe_value($message, 'data');
-        if ((gettype($data) === 'array' && array_keys($data) === array_keys(array_keys($data)))) {
+        $topic = $this->safe_string($message, 'topic', '');
+        $dataList = $this->safe_list($message, 'data');
+        if ($dataList !== null) {
             // algoexecutionreportv2
-            for ($i = 0; $i < count($data); $i++) {
-                $order = $data[$i];
-                $tradeId = $this->omit_zero($this->safe_string($data, 'tradeId'));
+            for ($i = 0; $i < count($dataList); $i++) {
+                $tradeId = $this->omit_zero($this->safe_string($dataList, 'tradeId'));
                 if ($tradeId !== null) {
-                    $this->handle_my_trade($client, $order);
+                    $this->handle_my_trade($client, $this->safe_dict($dataList, $i, array()));
                 }
-                $this->handle_order($client, $order, $topic);
+                $this->handle_order($client, $this->safe_dict($dataList, $i, array()), $topic);
             }
         } else {
+            $data = $this->safe_dict($message, 'data', array());
             // executionreport
             $tradeId = $this->omit_zero($this->safe_string($data, 'tradeId'));
             if ($tradeId !== null) {
@@ -1329,7 +1328,7 @@ class woo extends \ccxt\async\woo {
         }
     }
 
-    public function handle_order(Client $client, array $message, ?string $topic) {
+    public function handle_order(Client $client, array $message, string $topic) {
         $parsed = $this->parse_ws_order($message);
         $symbol = $this->safe_string($parsed, 'symbol');
         $orderId = $this->safe_string($parsed, 'id');
@@ -1535,8 +1534,7 @@ class woo extends \ccxt\async\woo {
         for ($i = 0; $i < count($postitionsIds); $i++) {
             $marketId = $postitionsIds[$i];
             $market = $this->safe_market($marketId);
-            $rawPosition = $rawPositions[$marketId];
-            $position = $this->parse_position($rawPosition, $market);
+            $position = $this->parse_position($this->safe_dict($rawPositions, $marketId, array()), $market);
             $newPositions[] = $position;
             $cache->append($position);
             $marketSymbol = $this->safe_string($market, 'symbol', '');
@@ -1676,7 +1674,7 @@ class woo extends \ccxt\async\woo {
         $client->resolve($fundingRate, $messageHash);
     }
 
-    public function handle_error_message(Client $client, array $message): ?bool {
+    public function handle_error_message(Client $client, array $message): bool {
         //
         // {"id":"1","event":"subscribe","success":false,"ts":1710780997216,"errorMsg":"Auth is needed."}
         //
@@ -1724,8 +1722,8 @@ class woo extends \ccxt\async\woo {
         $subMessageHashes = $this->safe_list($subscription, 'subMessageHashes', array());
         $unsubMessageHashes = $this->safe_list($subscription, 'unsubMessageHashes', array());
         for ($i = 0; $i < count($subMessageHashes); $i++) {
-            $subHash = $subMessageHashes[$i];
-            $unsubHash = $unsubMessageHashes[$i];
+            $subHash = $this->safe_string($subMessageHashes, $i);
+            $unsubHash = $this->safe_string($unsubMessageHashes, $i);
             $this->clean_unsubscription($client, $subHash, $unsubHash);
         }
         $this->clean_cache($subscription);
@@ -1829,7 +1827,7 @@ class woo extends \ccxt\async\woo {
         $subscription = $this->safe_dict($subscriptionsById, $id, array());
         $method = $this->safe_value($subscription, 'method');
         if ($method !== null) {
-            $method($client, $message, $subscription);
+            $this->handle_order_book_subscription($client, $message, $subscription);
         }
         return $message;
     }

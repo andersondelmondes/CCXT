@@ -7,7 +7,7 @@ from ccxt.base.exchange import Exchange
 from ccxt.abstract.bitopro import ImplicitAPI
 import hashlib
 import math
-from ccxt.base.types import Balances, Currencies, Currency, CurrencyInterface, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Tickers, Trade, TradingFees, DepositWithdrawFees, Transaction
+from ccxt.base.types import Balances, Bool, Currencies, Currency, CurrencyInterface, Int, Market, Num, Order, OrderBook, OrderSide, OrderType, Str, Strings, Ticker, Tickers, Trade, TradingFees, DepositWithdrawFees, Transaction
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
@@ -883,7 +883,9 @@ class bitopro(Exchange, ImplicitAPI):
         }
         # we need to have a limit argument because "to" and "from" are required
         # supports slightly more than 75k candles atm, but limit here to avoid errors
-        limitResolved = self.parse_to_int(500 if (limit is None) else min(limit, 75000))
+        limitResolved = 500
+        if limit is not None:
+            limitResolved = self.parse_to_int(min(limit, 75000))
         timeframeInSeconds = self.parse_timeframe(timeframe)
         alignedSince = None
         if since is None:
@@ -936,7 +938,7 @@ class bitopro(Exchange, ImplicitAPI):
             candle = self.safe_list(candles, i, [])
             if candle[0] == timestamp:
                 result.append(candle)
-                i = self.sum(i, 1)
+                i = i + 1
             else:
                 # set open, high, low to close
                 closeValue = self.safe_value(copyFrom, 4)
@@ -1012,7 +1014,9 @@ class bitopro(Exchange, ImplicitAPI):
             '4': 'canceled',
             '6': 'canceled',
         }
-        return None if (status is None) else self.safe_string(statuses, status)
+        if status is None:
+            return None
+        return self.safe_string(statuses, status)
 
     def parse_order(self, order: dict, market: Market = None) -> Order:
         #
@@ -1850,7 +1854,7 @@ class bitopro(Exchange, ImplicitAPI):
         fullUrl = apiUrl + url
         return {'url': fullUrl, 'method': method, 'body': requestBody, 'headers': requestHeaders}
 
-    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str):
+    def handle_errors(self, code: int, reason: str, url: str, method: str, headers: dict, body: str, response: object, requestHeaders: dict, requestBody: Str) -> Bool:
         if response is None:
             return None  # fallback to the default error handler
         statusCode = self.parse_to_int(code)

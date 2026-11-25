@@ -546,14 +546,15 @@ class nado extends Exchange {
         $isTriggerOrder = $isStopOrder || $isStopLossOrder || $isTakeProfitOrder;
         if ($isStopOrder) {
             // the final omit drops triggerDirection from the request
-            $triggerDirection = $this->safe_string($this->handle_trigger_direction_and_params($paramsRecvWindow), 0);
+            list($triggerDirection) = $this->handle_trigger_direction_and_params($paramsRecvWindow);
             $directionSuffix = 'below';
             if ($triggerDirection === 'ascending') {
                 $directionSuffix = 'above';
             }
             $triggerPriceX18 = $this->convert_to_x18($triggerPrice);
             $priceRequirement = array();
-            $priceRequirement['oracle_price_' . $directionSuffix] = $triggerPriceX18;
+            $oracleKey = 'oracle_price_' . $directionSuffix;
+            $priceRequirement[$oracleKey] = $triggerPriceX18;
             $trigger = array(
                 'price_trigger' => array(
                     'price_requirement' => $priceRequirement,
@@ -574,7 +575,8 @@ class nado extends Exchange {
             }
             $triggerPriceX18 = $this->convert_to_x18($triggerPrice);
             $priceRequirement = array();
-            $priceRequirement['oracle_price_' . $oracleSide] = $triggerPriceX18;
+            $oracleKey = 'oracle_price_' . $oracleSide;
+            $priceRequirement[$oracleKey] = $triggerPriceX18;
             $trigger = array(
                 'price_trigger' => array(
                     'price_requirement' => $priceRequirement,
@@ -1547,10 +1549,9 @@ class nado extends Exchange {
             $submissionIdx = $this->safe_string($event, 'submission_idx');
             $tx = array();
             for ($j = 0; $j < count($txs); $j++) {
-                $rawTx = $txs[$j];
-                $txSubmissionIdx = $this->safe_string($rawTx, 'submission_idx');
+                $txSubmissionIdx = $this->safe_string($txs[$j], 'submission_idx');
                 if ($txSubmissionIdx === $submissionIdx) {
-                    $tx = $rawTx;
+                    $tx = $txs[$j];
                     break;
                 }
             }
@@ -1625,10 +1626,9 @@ class nado extends Exchange {
             $productId = $this->safe_string($position, 'product_id');
             $product = array();
             for ($j = 0; $j < count($products); $j++) {
-                $rawProduct = $products[$j];
-                $rawProductId = $this->safe_string($rawProduct, 'product_id');
+                $rawProductId = $this->safe_string($products[$j], 'product_id');
                 if ($rawProductId === $productId) {
-                    $product = $rawProduct;
+                    $product = $products[$j];
                     break;
                 }
             }
@@ -1786,7 +1786,7 @@ class nado extends Exchange {
             $priceIncrement = $this->parse_x18($this->safe_string($market, 'price_increment_x18'));
             $amountIncrement = $this->parse_x18($this->safe_string($market, 'size_increment'));
             $minCost = $this->parse_x18($this->safe_string($market, 'min_size'));
-            $markets[] = $this->safe_market_structure(array(
+            $marketEntry = array(
                 'id' => $id,
                 'lowercaseId' => null,
                 'symbol' => $symbol,
@@ -1804,11 +1804,11 @@ class nado extends Exchange {
                 'option' => false,
                 'active' => $active,
                 'contract' => $contract,
-                'linear' => $contract ? true : null,
-                'inverse' => $contract ? false : null,
+                'linear' => null,
+                'inverse' => null,
                 'taker' => $this->parse_x18($this->safe_string($market, 'taker_fee_rate_x18')),
                 'maker' => $this->parse_x18($this->safe_string($market, 'maker_fee_rate_x18')),
-                'contractSize' => $contract ? 1 : null,
+                'contractSize' => null,
                 'expiry' => null,
                 'expiryDatetime' => null,
                 'strike' => null,
@@ -1842,7 +1842,13 @@ class nado extends Exchange {
                     'v2Pair' => $pair,
                     'v2Asset' => $asset,
                 )),
-            ));
+            );
+            if ($contract) {
+                $marketEntry['linear'] = true;
+                $marketEntry['inverse'] = false;
+                $marketEntry['contractSize'] = 1;
+            }
+            $markets[] = $this->safe_market_structure($marketEntry);
         }
         return $markets;
     }
@@ -2496,7 +2502,7 @@ class nado extends Exchange {
         );
     }
 
-    public function parse_funding_history(array $funding, ?array $market = null) {
+    public function parse_funding_history(array $funding, ?array $market = null): array {
         //
         //     {
         //         "product_id": 2,
@@ -2903,7 +2909,9 @@ class nado extends Exchange {
             }
             $filled = $this->parse_x18(Precise::string_abs($archiveFilled));
             $costString = $this->safe_string($order, 'quote_filled');
-            $cost = ($costString === null) ? null : $this->parse_x18(Precise::string_abs($costString));
+            if ($costString !== null) {
+                $cost = $this->parse_x18(Precise::string_abs($costString));
+            }
             if (($filled !== null) && ($cost !== null)) {
                 $average = Precise::string_div($this->number_to_string($cost), $this->number_to_string($filled));
             }
@@ -3117,7 +3125,8 @@ class nado extends Exchange {
             return mb_substr($paddedLeft, $start, strlen($paddedLeft) - $start);
         }
         $paddedRight = $value . $zeros;
-        return mb_substr($paddedRight, 0, $length - 0);
+        $end = $this->parse_to_int($length);
+        return mb_substr($paddedRight, 0, $end - 0);
     }
 
     public function sign_order(array $order, ?int $productId, ?string $chainId): string {
@@ -3216,14 +3225,17 @@ class nado extends Exchange {
         return $marketId;
     }
 
-    public function calculate_rate_limiter_cost(array $api, string $method, string $path, mixed $params, array $config = array()) {
+    public function calculate_rate_limiter_cost(array $api, string $method, string $path, $params, array $config = array()) {
         // the gateway weighs a query by its 'type' param, the archive by the query key of the
         // body, and every archive weight grows with the number of rows requested
-        if ((is_array($config) && array_key_exists('byType' ?? '', $config)) && (is_array($params) && array_key_exists('type' ?? '', $params))) {
-            $queryType = $params['type'];
+        if (is_array($config) && array_key_exists('byType' ?? '', $config)) {
             $byType = $config['byType'];
-            if (is_array($byType) && array_key_exists($queryType ?? '', $byType)) {
-                return $byType[$queryType];
+            $queryType = $this->safe_string($params, 'type');
+            if ($queryType !== null) {
+                $typeCost = $this->safe_integer($byType, $queryType);
+                if ($typeCost !== null) {
+                    return $typeCost;
+                }
             }
         }
         $byQuery = $this->safe_dict($config, 'byQuery');
@@ -3288,7 +3300,7 @@ class nado extends Exchange {
         return array( 'url' => $url, 'method' => $method, 'body' => $bodyResult, 'headers' => $headersValue );
     }
 
-    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody) {
+    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody): ?bool {
         if (($response === null) || ($response === null)) {
             return null; // fallback to default error handler
         }

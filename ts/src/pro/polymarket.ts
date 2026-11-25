@@ -94,7 +94,8 @@ export default class polymarket extends polymarketRest {
         const hashesToCheck = (checkHashes === undefined) ? messageHashes : checkHashes;
         let willSend = false;
         for (let i = 0; i < hashesToCheck.length; i++) {
-            if (!(hashesToCheck[i] in client.subscriptions)) {
+            const hashToCheck = this.safeString (hashesToCheck, i, '');
+            if (!(hashToCheck in client.subscriptions)) {
                 willSend = true;
             }
         }
@@ -268,7 +269,7 @@ export default class polymarket extends polymarketRest {
             }
         }
         const request = this.sendSubscription ('sub', channels, messageHashes, messageHashes, {}, params);
-        const newTicker = await this.watchMultiple (url, messageHashes, request, messageHashes);
+        const newTicker: Dict = await this.watchMultiple (url, messageHashes, request, messageHashes);
         if (this.newUpdates) {
             const result: Dict = {};
             result[newTicker['symbol']] = newTicker;
@@ -337,7 +338,7 @@ export default class polymarket extends polymarketRest {
             channels.push ('bbo::' + this.safeString (market, 'id', ''));
         }
         const request = this.sendSubscription ('sub', channels, messageHashes, messageHashes, {}, params);
-        const ticker = await this.watchMultiple (url, messageHashes, request, messageHashes);
+        const ticker: Dict = await this.watchMultiple (url, messageHashes, request, messageHashes);
         if (this.newUpdates) {
             const result: Dict = {};
             result[ticker['symbol']] = ticker;
@@ -399,7 +400,7 @@ export default class polymarket extends polymarketRest {
         const messageHash = 'trade:' + symbolResolved;
         const request = this.sendSubscription ('sub', [ 'trades::' + this.safeString (market, 'id', '') ], [ messageHash ], [ messageHash ], {}, params);
         const url = this.safeString (this.urls['api'], 'ws');
-        const trades = await this.watch (url, messageHash, request, messageHash);
+        const trades: ArrayCache = await this.watch (url, messageHash, request, messageHash);
         let limitResolved: Int = limit;
         if (this.newUpdates) {
             limitResolved = trades.getLimit (symbolResolved, limitResolved);
@@ -453,12 +454,12 @@ export default class polymarket extends polymarketRest {
         // the asyncapi spec describes the data field as an array of trade objects while typing it
         // as a single object, so both shapes are handled here
         //
-        const data = this.safeValue (message, 'data');
+        const dataList = this.safeList (message, 'data');
         let rows = [];
-        if (Array.isArray (data)) {
-            rows = data;
+        if (dataList !== undefined) {
+            rows = dataList;
         } else {
-            rows.push (data);
+            rows.push (this.safeValue (message, 'data'));
         }
         const rowsLength = rows.length;
         if (rowsLength === 0) {
@@ -546,7 +547,7 @@ export default class polymarket extends polymarketRest {
         const channel = 'klines::' + this.safeString (market, 'id', '') + '::' + interval;
         const request = this.sendSubscription ('sub', [ channel ], [ messageHash ], [ messageHash ], {}, params);
         const url = this.safeString (this.urls['api'], 'ws');
-        const ohlcv = await this.watch (url, messageHash, request, messageHash);
+        const ohlcv: ArrayCacheByTimestamp = await this.watch (url, messageHash, request, messageHash);
         let limitResolved: Int = limit;
         if (this.newUpdates) {
             limitResolved = ohlcv.getLimit (symbolResolved, limitResolved);
@@ -693,7 +694,7 @@ export default class polymarket extends polymarketRest {
         const subscribeHashes = [ 'orders' ];
         const request = this.sendSubscription ('sub', [ 'orders' ], [ messageHash ], subscribeHashes, {}, params, subscribeHashes);
         const url = this.safeString (this.urls['api'], 'ws');
-        const orders = await this.watch (url, messageHash, request, 'orders');
+        const orders: ArrayCache = await this.watch (url, messageHash, request, 'orders');
         let limitResolved: Int = limit;
         if (this.newUpdates) {
             limitResolved = orders.getLimit (symbolResolved, limitResolved);
@@ -724,11 +725,9 @@ export default class polymarket extends polymarketRest {
         //         }
         //     }
         //
-        const data = this.safeValue (message, 'data');
-        let rows = [];
-        if (Array.isArray (data)) {
-            rows = data;
-        } else {
+        const data = this.safeDict (message, 'data');
+        const rows = [];
+        if (data !== undefined) {
             rows.push (data);
         }
         const rowsLength = rows.length;
@@ -783,7 +782,7 @@ export default class polymarket extends polymarketRest {
         const subscribeHashes = [ 'fills' ];
         const request = this.sendSubscription ('sub', [ 'fills' ], [ messageHash ], subscribeHashes, {}, params, subscribeHashes);
         const url = this.safeString (this.urls['api'], 'ws');
-        const trades = await this.watch (url, messageHash, request, 'fills');
+        const trades: ArrayCache = await this.watch (url, messageHash, request, 'fills');
         let limitResolved: Int = limit;
         if (this.newUpdates) {
             limitResolved = trades.getLimit (symbolResolved, limitResolved);
@@ -818,12 +817,12 @@ export default class polymarket extends polymarketRest {
         //         ]
         //     }
         //
-        const data = this.safeValue (message, 'data');
+        const dataList = this.safeList (message, 'data');
         let rows = [];
-        if (Array.isArray (data)) {
-            rows = data;
+        if (dataList !== undefined) {
+            rows = dataList;
         } else {
-            rows.push (data);
+            rows.push (this.safeValue (message, 'data'));
         }
         const rowsLength = rows.length;
         if (rowsLength === 0) {
@@ -1108,12 +1107,12 @@ export default class polymarket extends polymarketRest {
         if (errorMessage !== undefined) {
             const error = new ExchangeError (this.id + ' ' + errorMessage);
             for (let i = 0; i < messageHashes.length; i++) {
-                client.reject (error, messageHashes[i]);
+                const messageHash = messageHashes[i];
+                client.reject (error, messageHash);
                 // clearing the awaited hash lets a later call resend, and a
                 // failed subscribe must also clear the shared hash the base
                 // watch registered - a failed unsubscribe keeps the live
                 // subscription untouched instead
-                const messageHash = messageHashes[i];
                 if (messageHash in client.subscriptions) {
                     delete client.subscriptions[messageHash];
                 }
@@ -1152,7 +1151,7 @@ export default class polymarket extends polymarketRest {
                 }
             }
             for (let i = 0; i < messageHashes.length; i++) {
-                this.cleanUnsubscription (client, subMessageHashes[i], messageHashes[i]);
+                this.cleanUnsubscription (client, this.safeString (subMessageHashes, i), messageHashes[i]);
             }
         }
     }

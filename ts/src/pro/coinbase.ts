@@ -450,7 +450,7 @@ export default class coinbase extends coinbaseRest {
             const tickersObj = this.safeDict (events, i);
             const tickers: Dict[] = this.safeList (tickersObj, 'tickers', []);
             for (let j = 0; j < tickers.length; j++) {
-                const ticker = tickers[j];
+                const ticker = this.safeDict (tickers, j, {});
                 const wsMarketId = this.safeString (ticker, 'product_id');
                 if (wsMarketId === undefined) {
                     continue;
@@ -539,7 +539,7 @@ export default class coinbase extends coinbaseRest {
         }
         const symbolValue: string = this.symbol (symbol);
         const name = 'candles';
-        const ohlcv = await this.subscribe (name, false, symbolValue, params);
+        const ohlcv: ArrayCacheByTimestamp = await this.subscribe (name, false, symbolValue, params);
         let limitResolved: Int = limit;
         if (this.newUpdates) {
             limitResolved = ohlcv.getLimit (symbolValue, limit);
@@ -589,7 +589,7 @@ export default class coinbase extends coinbaseRest {
                     this.safeNumber (candle, 'close'),
                     this.safeNumber (candle, 'volume'),
                 ];
-                this.ohlcvs[symbol] = this.safeValue (this.ohlcvs, symbol, {});
+                this.ohlcvs[symbol] = this.safeDict (this.ohlcvs, symbol, {});
                 let stored = this.safeValue (this.ohlcvs[symbol], timeframe);
                 if (stored === undefined) {
                     const limit = this.safeInteger (this.options, 'OHLCVLimit', 1000);
@@ -621,7 +621,7 @@ export default class coinbase extends coinbaseRest {
         }
         const symbolValue: string = this.symbol (symbol);
         const name = 'market_trades';
-        const trades = await this.subscribe (name, false, symbolValue, params);
+        const trades: ArrayCacheBySymbolById = await this.subscribe (name, false, symbolValue, params);
         let limitResolved = limit;
         if (this.newUpdates) {
             limitResolved = trades.getLimit (symbolValue, limit);
@@ -662,7 +662,7 @@ export default class coinbase extends coinbaseRest {
             await this.loadMarkets ();
         }
         const name = 'market_trades';
-        const trades = await this.subscribeMultiple (name, false, symbols, params);
+        const trades: ArrayCacheBySymbolById = await this.subscribeMultiple (name, false, symbols, params);
         const first = this.safeDict (trades, 0);
         const tradeSymbol = this.safeString (first, 'symbol');
         let limitResolved = limit;
@@ -705,7 +705,7 @@ export default class coinbase extends coinbaseRest {
             await this.loadMarkets ();
         }
         const name = 'user';
-        const orders = await this.subscribe (name, true, symbol, params);
+        const orders: ArrayCacheBySymbolById = await this.subscribe (name, true, symbol, params);
         let limitResolved = limit;
         if (this.newUpdates) {
             limitResolved = orders.getLimit (symbol, limit);
@@ -837,8 +837,7 @@ export default class coinbase extends coinbaseRest {
             // coinbase sends trades newest-first, append them in reverse so the cache stays sorted by ascending timestamp
             const tradesLength = currentTrades.length;
             for (let j = 0; j < tradesLength; j++) {
-                const item = currentTrades[tradesLength - j - 1];
-                tradesArray.append (this.parseTrade (item));
+                tradesArray.append (this.parseTrade (this.safeDict (currentTrades, tradesLength - j - 1, {})));
             }
         }
         client.resolve (tradesArray, messageHash);
@@ -879,6 +878,7 @@ export default class coinbase extends coinbaseRest {
             return;
         }
         const marketIds: string[] = [];
+        const seenMarketIds: Dict = {};
         if (this.orders === undefined) {
             const limit = this.safeInteger (this.options, 'ordersLimit', 1000);
             this.orders = new ArrayCacheBySymbolById (limit);
@@ -895,7 +895,8 @@ export default class coinbase extends coinbaseRest {
                 const cachedOrders = this.orders;
                 const marketId = this.safeString (responseOrder, 'product_id');
                 if (marketId !== undefined) {
-                    if (!(marketId in marketIds)) {
+                    if (!(marketId in seenMarketIds)) {
+                        seenMarketIds[marketId] = true;
                         marketIds.push (marketId);
                     }
                 }
@@ -1072,16 +1073,18 @@ export default class coinbase extends coinbaseRest {
         const events = this.safeList (message, 'events', []);
         const firstEvent = this.safeDict (events, 0, {});
         const isUnsub = ('subscriptions' in firstEvent);
-        const subKeys = Object.keys (firstEvent['subscriptions']);
+        const subKeys = Object.keys (this.safeDict (firstEvent, 'subscriptions', {}));
         const subKeysLength = subKeys.length;
         if (isUnsub && subKeysLength === 0) {
             const unSubObject = this.safeDict (this.options, 'unSubscription', {});
-            const messageHashes: string[] = this.safeList (unSubObject, 'messageHashes', []);
+            const messageHashes: Strings = this.safeStringList (unSubObject, [ 'messageHashes' ]);
             const subMessageHashes: string[] = this.safeList (unSubObject, 'subMessageHashes', []);
-            for (let i = 0; i < messageHashes.length; i++) {
-                const messageHash = messageHashes[i];
-                const subHash = subMessageHashes[i];
-                this.cleanUnsubscription (client, subHash, messageHash);
+            if (messageHashes !== undefined) {
+                for (let i = 0; i < messageHashes.length; i++) {
+                    const messageHash = messageHashes[i];
+                    const subHash = subMessageHashes[i];
+                    this.cleanUnsubscription (client, subHash, messageHash);
+                }
             }
             this.cleanCache (unSubObject);
         }

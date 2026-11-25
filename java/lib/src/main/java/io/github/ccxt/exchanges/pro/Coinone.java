@@ -82,28 +82,30 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
      */
     public CompletableFuture<OrderBook> watchOrderBook(String symbol, Long limit, Map<String, Object> parameters)
     {
+        return BaseExchange.supplyAsync(() -> this.watchOrderBookCore(symbol, limit, parameters)).thenApply(OrderBook::new);
+    }
 
-        return BaseExchange.supplyAsync(() -> {
+    private Object watchOrderBookCore(String symbol, Long limit, Map<String, Object> parameters)
+    {
 
-            if (java.util.Objects.equals(this.markets, null))
-            {
-                (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
-            }
-            Map<String, Object> market = this.market(symbol);
-            String messageHash = ("orderbook:" + market.get("symbol"));
-            String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
-            Map<String, Object> request = new HashMap<String, Object>() {{
-                put( "request_type", "SUBSCRIBE" );
-                put( "channel", "ORDERBOOK" );
-                put( "topic", new HashMap<String, Object>() {{
-                    put( "quote_currency", market.get("quote") );
-                    put( "target_currency", market.get("base") );
-                }} );
-            }};
-            Map<String, Object> message = this.extend(request, parameters);
-            io.github.ccxt.ws.WsOrderBook orderbook = (this.<io.github.ccxt.ws.WsOrderBook>watch(url, messageHash, message, messageHash, null)).join();
-            return orderbook.limit();
-        }).thenApply(OrderBook::new);
+        if (java.util.Objects.equals(this.markets, null))
+        {
+            (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
+        }
+        Map<String, Object> market = this.market(symbol);
+        String messageHash = ("orderbook:" + market.get("symbol"));
+        String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
+        Map<String, Object> request = new HashMap<String, Object>() {{
+            put( "request_type", "SUBSCRIBE" );
+            put( "channel", "ORDERBOOK" );
+            put( "topic", new HashMap<String, Object>() {{
+                put( "quote_currency", market.get("quote") );
+                put( "target_currency", market.get("base") );
+            }} );
+        }};
+        Map<String, Object> message = this.extend(request, parameters);
+        io.github.ccxt.ws.WsOrderBook orderbook = (this.<io.github.ccxt.ws.WsOrderBook>watch(url, messageHash, message, messageHash, null)).join();
+        return orderbook.limit();
 
     }
 
@@ -136,8 +138,8 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         Map<String, Object> data = this.safeDict(message, "data", new HashMap<String, Object>() {{}});
         String baseId = this.safeStringUpper(data, "target_currency");
         String quoteId = this.safeStringUpper(data, "quote_currency");
-        String base = this.safeCurrencyCode((String) (baseId), (Map<String, Object>) null);
-        String quote = this.safeCurrencyCode((String) (quoteId), (Map<String, Object>) null);
+        String base = this.safeCurrencyCode(baseId, null);
+        String quote = this.safeCurrencyCode(quoteId, null);
         if ((java.util.Objects.equals(base, null)) || (java.util.Objects.equals(quote, null)))
         {
             return;
@@ -155,8 +157,8 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         orderbook.put("symbol", symbol);
         List<Object> asks = this.safeList(data, "asks", new ArrayList<Object>(Arrays.asList()));
         List<Object> bids = this.safeList(data, "bids", new ArrayList<Object>(Arrays.asList()));
-        this.handleDeltas((orderbook == null ? null : orderbook.get("asks")), asks);
-        this.handleDeltas((orderbook == null ? null : orderbook.get("bids")), bids);
+        this.handleDeltas((orderbook == null ? null : orderbook.asks), asks);
+        this.handleDeltas((orderbook == null ? null : orderbook.bids), bids);
         orderbook.put("timestamp", timestamp);
         orderbook.put("datetime", this.iso8601(timestamp));
         String messageHash = ("orderbook:" + symbol);
@@ -164,10 +166,10 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         client.resolve(orderbook, messageHash);
     }
 
-    public void handleDelta(Object bookside, Object delta)
+    public void handleDelta(io.github.ccxt.ws.OrderBookSide bookside, Object delta)
     {
         List<Object> bidAsk = (List<Object>) this.parseOrderBookBidAsk(delta, "price", "qty", 2);
-        ((io.github.ccxt.ws.OrderBookSide) bookside).storeArray(bidAsk);
+        bookside.storeArray(bidAsk);
     }
 
     /**
@@ -181,27 +183,29 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
      */
     public CompletableFuture<Ticker> watchTicker(String symbol, Map<String, Object> parameters)
     {
+        return BaseExchange.supplyAsync(() -> this.watchTickerCore(symbol, parameters)).thenApply(Ticker::new);
+    }
 
-        return BaseExchange.supplyAsync(() -> {
+    private Object watchTickerCore(String symbol, Map<String, Object> parameters)
+    {
 
-            if (java.util.Objects.equals(this.markets, null))
-            {
-                (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
-            }
-            Map<String, Object> market = this.market(symbol);
-            String messageHash = ("ticker:" + market.get("symbol"));
-            String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
-            Map<String, Object> request = new HashMap<String, Object>() {{
-                put( "request_type", "SUBSCRIBE" );
-                put( "channel", "TICKER" );
-                put( "topic", new HashMap<String, Object>() {{
-                    put( "quote_currency", market.get("quote") );
-                    put( "target_currency", market.get("base") );
-                }} );
-            }};
-            Map<String, Object> message = this.extend(request, parameters);
-            return (this.watch(url, messageHash, message, messageHash, null)).join();
-        }).thenApply(Ticker::new);
+        if (java.util.Objects.equals(this.markets, null))
+        {
+            (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
+        }
+        Map<String, Object> market = this.market(symbol);
+        String messageHash = ("ticker:" + market.get("symbol"));
+        String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
+        Map<String, Object> request = new HashMap<String, Object>() {{
+            put( "request_type", "SUBSCRIBE" );
+            put( "channel", "TICKER" );
+            put( "topic", new HashMap<String, Object>() {{
+                put( "quote_currency", market.get("quote") );
+                put( "target_currency", market.get("base") );
+            }} );
+        }};
+        Map<String, Object> message = this.extend(request, parameters);
+        return (this.watch(url, messageHash, message, messageHash, null)).join();
 
     }
 
@@ -248,7 +252,7 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         client.resolve((symbol == null || this.tickers == null ? null : this.tickers.get(symbol)), messageHash);
     }
 
-    public Ticker parseWsTicker(Object ticker, Map<String, Object> market)
+    public Ticker parseWsTicker(Map<String, Object> ticker, Map<String, Object> market)
     {
         //
         //     {
@@ -279,8 +283,8 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         String last = this.safeString(ticker, "last");
         String baseId = this.safeString(ticker, "target_currency");
         String quoteId = this.safeString(ticker, "quote_currency");
-        String base = this.safeCurrencyCode((String) (baseId), (Map<String, Object>) null);
-        String quote = this.safeCurrencyCode((String) (quoteId), (Map<String, Object>) null);
+        String base = this.safeCurrencyCode(baseId, null);
+        String quote = this.safeCurrencyCode(quoteId, null);
         String symbol = null;
         if ((!java.util.Objects.equals(base, null)) && (!java.util.Objects.equals(quote, null)))
         {
@@ -292,10 +296,10 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         mapLiteral1.put("datetime", this.iso8601(timestamp));
         mapLiteral1.put("high", this.safeString(ticker, "high"));
         mapLiteral1.put("low", this.safeString(ticker, "low"));
-        mapLiteral1.put("bid", this.safeNumber(ticker, "bid_best_price", (Object) null));
-        mapLiteral1.put("bidVolume", this.safeNumber(ticker, "bid_best_qty", (Object) null));
-        mapLiteral1.put("ask", this.safeNumber(ticker, "ask_best_price", (Object) null));
-        mapLiteral1.put("askVolume", this.safeNumber(ticker, "ask_best_qty", (Object) null));
+        mapLiteral1.put("bid", this.safeNumber(ticker, "bid_best_price", null));
+        mapLiteral1.put("bidVolume", this.safeNumber(ticker, "bid_best_qty", null));
+        mapLiteral1.put("ask", this.safeNumber(ticker, "ask_best_price", null));
+        mapLiteral1.put("askVolume", this.safeNumber(ticker, "ask_best_qty", null));
         mapLiteral1.put("vwap", null);
         mapLiteral1.put("open", this.safeString(ticker, "first"));
         mapLiteral1.put("close", last);
@@ -323,33 +327,35 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
      */
     public CompletableFuture<List<Trade>> watchTrades(String symbol, Long since, Long limit, Map<String, Object> parameters)
     {
+        return BaseExchange.supplyAsync(() -> this.watchTradesCore(symbol, since, limit, parameters)).thenApply(res -> ((List<?>) res).stream().map(Trade::new).collect(Collectors.toList()));
+    }
 
-        return BaseExchange.supplyAsync(() -> {
+    private Object watchTradesCore(String symbol, Long since, Long limit, Map<String, Object> parameters)
+    {
 
-            if (java.util.Objects.equals(this.markets, null))
-            {
-                (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
-            }
-            Map<String, Object> market = this.market(symbol);
-            String messageHash = ("trade:" + market.get("symbol"));
-            String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
-            Map<String, Object> request = new HashMap<String, Object>() {{
-                put( "request_type", "SUBSCRIBE" );
-                put( "channel", "TRADE" );
-                put( "topic", new HashMap<String, Object>() {{
-                    put( "quote_currency", market.get("quote") );
-                    put( "target_currency", market.get("base") );
-                }} );
-            }};
-            Map<String, Object> message = this.extend(request, parameters);
-            List<Object> trades = (this.<List<Object>>watch(url, messageHash, message, messageHash, null)).join();
-            Long limitResolved = limit;
-            if (this.newUpdates)
-            {
-                limitResolved = io.github.ccxt.ws.ArrayCache.getLimitOf(trades, market.get("symbol"), limit);
-            }
-            return this.filterBySinceLimit(trades, since, limitResolved, "timestamp", true);
-        }).thenApply(res -> ((List<?>) res).stream().map(Trade::new).collect(Collectors.toList()));
+        if (java.util.Objects.equals(this.markets, null))
+        {
+            (this.loadMarkets(false, new HashMap<String, Object>() {{}})).join();
+        }
+        Map<String, Object> market = this.market(symbol);
+        String messageHash = ("trade:" + market.get("symbol"));
+        String url = (String) ((Map<String, Object>)this.urls.get("api")).get("ws");
+        Map<String, Object> request = new HashMap<String, Object>() {{
+            put( "request_type", "SUBSCRIBE" );
+            put( "channel", "TRADE" );
+            put( "topic", new HashMap<String, Object>() {{
+                put( "quote_currency", market.get("quote") );
+                put( "target_currency", market.get("base") );
+            }} );
+        }};
+        Map<String, Object> message = this.extend(request, parameters);
+        List<Object> trades = (this.<List<Object>>watch(url, messageHash, message, messageHash, null)).join();
+        Long limitResolved = limit;
+        if (this.newUpdates)
+        {
+            limitResolved = io.github.ccxt.ws.ArrayCache.getLimitOf(trades, market.get("symbol"), limit);
+        }
+        return this.filterBySinceLimit(trades, since, limitResolved, "timestamp", true);
 
     }
 
@@ -371,7 +377,7 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         //     }
         //
         Map<String, Object> data = this.safeDict(message, "data", new HashMap<String, Object>() {{}});
-        Map<String, Object> trade = this.parseWsTrade(data, (Map<String, Object>) null);
+        Map<String, Object> trade = this.parseWsTrade(data, null);
         String symbol = this.safeString(trade, "symbol", "");
         io.github.ccxt.ws.ArrayCache stored = (io.github.ccxt.ws.ArrayCache) this.safeValue(this.trades, symbol);
         if (java.util.Objects.equals(stored, null))
@@ -400,15 +406,15 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         //
         String baseId = this.safeStringUpper(trade, "target_currency");
         String quoteId = this.safeStringUpper(trade, "quote_currency");
-        String base = this.safeCurrencyCode((String) (baseId), (Map<String, Object>) null);
-        String quote = this.safeCurrencyCode((String) (quoteId), (Map<String, Object>) null);
+        String base = this.safeCurrencyCode(baseId, null);
+        String quote = this.safeCurrencyCode(quoteId, null);
         String symbol = null;
         if ((!java.util.Objects.equals(base, null)) && (!java.util.Objects.equals(quote, null)))
         {
             symbol = ((base + "/") + quote);
         }
         Long timestamp = this.safeInteger(trade, "timestamp");
-        Map<String, Object> marketResolved = this.safeMarket(symbol, market, (String) null, (String) null);
+        Map<String, Object> marketResolved = this.safeMarket(symbol, market, null, null);
         Boolean isSellerMaker = (Boolean) this.safeBool(trade, "is_seller_maker", (Object) null);
         String side = null;
         if (!java.util.Objects.equals(isSellerMaker, null))
@@ -434,7 +440,7 @@ public class Coinone extends io.github.ccxt.exchanges.Coinone
         return this.safeTrade(mapLiteral2, marketResolved);
     }
 
-    public Boolean handleErrorMessage(Client client, Object message)
+    public Boolean handleErrorMessage(Client client, Map<String, Object> message)
     {
         //
         //     {

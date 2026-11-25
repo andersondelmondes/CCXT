@@ -424,7 +424,7 @@ class coinbase(ccxt.async_support.coinbase):
             tickersObj = self.safe_dict(events, i)
             tickers = self.safe_list(tickersObj, 'tickers', [])
             for j in range(0, len(tickers)):
-                ticker = tickers[j]
+                ticker = self.safe_dict(tickers, j, {})
                 wsMarketId = self.safe_string(ticker, 'product_id')
                 if wsMarketId is None:
                     continue
@@ -552,7 +552,7 @@ class coinbase(ccxt.async_support.coinbase):
                     self.safe_number(candle, 'close'),
                     self.safe_number(candle, 'volume'),
                 ]
-                self.ohlcvs[symbol] = self.safe_value(self.ohlcvs, symbol, {})
+                self.ohlcvs[symbol] = self.safe_dict(self.ohlcvs, symbol, {})
                 stored = self.safe_value(self.ohlcvs[symbol], timeframe)
                 if stored is None:
                     limit = self.safe_integer(self.options, 'OHLCVLimit', 1000)
@@ -772,8 +772,7 @@ class coinbase(ccxt.async_support.coinbase):
             # coinbase sends trades newest-first, append them in reverse so the cache stays sorted by ascending timestamp
             tradesLength = len(currentTrades)
             for j in range(0, tradesLength):
-                item = currentTrades[tradesLength - j - 1]
-                tradesArray.append(self.parse_trade(item))
+                tradesArray.append(self.parse_trade(self.safe_dict(currentTrades, tradesLength - j - 1, {})))
         client.resolve(tradesArray, messageHash)
         self.try_resolve_usdc(client, messageHash, tradesArray)
 
@@ -810,6 +809,7 @@ class coinbase(ccxt.async_support.coinbase):
         if events is None:
             return
         marketIds = []
+        seenMarketIds = {}
         if self.orders is None:
             limit = self.safe_integer(self.options, 'ordersLimit', 1000)
             self.orders = ArrayCacheBySymbolById(limit)
@@ -824,7 +824,8 @@ class coinbase(ccxt.async_support.coinbase):
                 cachedOrders = self.orders
                 marketId = self.safe_string(responseOrder, 'product_id')
                 if marketId is not None:
-                    if not (marketId in marketIds):
+                    if not (marketId in seenMarketIds):
+                        seenMarketIds[marketId] = True
                         marketIds.append(marketId)
                 cachedOrders.append(parsed)
         for i in range(0, len(marketIds)):
@@ -984,16 +985,17 @@ class coinbase(ccxt.async_support.coinbase):
         events = self.safe_list(message, 'events', [])
         firstEvent = self.safe_dict(events, 0, {})
         isUnsub = ('subscriptions' in firstEvent)
-        subKeys = list(firstEvent['subscriptions'].keys())
+        subKeys = list(self.safe_dict(firstEvent, 'subscriptions', {}).keys())
         subKeysLength = len(subKeys)
         if isUnsub and subKeysLength == 0:
             unSubObject = self.safe_dict(self.options, 'unSubscription', {})
-            messageHashes = self.safe_list(unSubObject, 'messageHashes', [])
+            messageHashes = self.safe_string_list(unSubObject, ['messageHashes'])
             subMessageHashes = self.safe_list(unSubObject, 'subMessageHashes', [])
-            for i in range(0, len(messageHashes)):
-                messageHash = messageHashes[i]
-                subHash = subMessageHashes[i]
-                self.clean_unsubscription(client, subHash, messageHash)
+            if messageHashes is not None:
+                for i in range(0, len(messageHashes)):
+                    messageHash = messageHashes[i]
+                    subHash = subMessageHashes[i]
+                    self.clean_unsubscription(client, subHash, messageHash)
             self.clean_cache(unSubObject)
         return message
 

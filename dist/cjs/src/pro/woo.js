@@ -301,7 +301,7 @@ class woo extends woo$1["default"] {
             orderbook.reset(snapshot);
             const messages = orderbook.cache;
             for (let i = 0; i < messages.length; i++) {
-                const messageItem = messages[i];
+                const messageItem = this.safeDict(messages, i, {});
                 const ts = this.safeInteger(messageItem, 'ts');
                 if (ts === undefined) {
                     continue;
@@ -611,8 +611,7 @@ class woo extends woo$1["default"] {
             if (ticker === undefined) {
                 continue;
             }
-            ticker['ts'] = timestamp;
-            const parsedTicker = this.parseWsBidAsk(ticker);
+            const parsedTicker = this.parseWsBidAsk(this.extend(ticker, { 'ts': timestamp }));
             const symbol = this.safeString(parsedTicker, 'symbol');
             if (symbol !== undefined) {
                 this.bidsasks[symbol] = parsedTicker;
@@ -814,7 +813,7 @@ class woo extends woo$1["default"] {
         const data = this.safeDict(message, 'data');
         const marketId = this.safeString(data, 'symbol');
         const market = this.safeMarket(marketId);
-        const symbol = market['symbol'];
+        const symbol = this.safeString(market, 'symbol', '');
         const trade = this.parseWsTrade(this.extend(data, { 'timestamp': timestamp }), market);
         let tradesArray = this.safeValue(this.trades, symbol);
         if (tradesArray === undefined) {
@@ -1192,20 +1191,20 @@ class woo extends woo$1["default"] {
         //         }
         //     }
         //
-        const topic = this.safeString(message, 'topic');
-        const data = this.safeValue(message, 'data');
-        if (Array.isArray(data)) {
+        const topic = this.safeString(message, 'topic', '');
+        const dataList = this.safeList(message, 'data');
+        if (dataList !== undefined) {
             // algoexecutionreportv2
-            for (let i = 0; i < data.length; i++) {
-                const order = data[i];
-                const tradeId = this.omitZero(this.safeString(data, 'tradeId'));
+            for (let i = 0; i < dataList.length; i++) {
+                const tradeId = this.omitZero(this.safeString(dataList, 'tradeId'));
                 if (tradeId !== undefined) {
-                    this.handleMyTrade(client, order);
+                    this.handleMyTrade(client, this.safeDict(dataList, i, {}));
                 }
-                this.handleOrder(client, order, topic);
+                this.handleOrder(client, this.safeDict(dataList, i, {}), topic);
             }
         }
         else {
+            const data = this.safeDict(message, 'data', {});
             // executionreport
             const tradeId = this.omitZero(this.safeString(data, 'tradeId'));
             if (tradeId !== undefined) {
@@ -1409,8 +1408,7 @@ class woo extends woo$1["default"] {
         for (let i = 0; i < postitionsIds.length; i++) {
             const marketId = postitionsIds[i];
             const market = this.safeMarket(marketId);
-            const rawPosition = rawPositions[marketId];
-            const position = this.parsePosition(rawPosition, market);
+            const position = this.parsePosition(this.safeDict(rawPositions, marketId, {}), market);
             newPositions.push(position);
             cache.append(position);
             const marketSymbol = this.safeString(market, 'symbol', '');
@@ -1586,8 +1584,8 @@ class woo extends woo$1["default"] {
         const subMessageHashes = this.safeList(subscription, 'subMessageHashes', []);
         const unsubMessageHashes = this.safeList(subscription, 'unsubMessageHashes', []);
         for (let i = 0; i < subMessageHashes.length; i++) {
-            const subHash = subMessageHashes[i];
-            const unsubHash = unsubMessageHashes[i];
+            const subHash = this.safeString(subMessageHashes, i);
+            const unsubHash = this.safeString(unsubMessageHashes, i);
             this.cleanUnsubscription(client, subHash, unsubHash);
         }
         this.cleanCache(subscription);
@@ -1681,7 +1679,7 @@ class woo extends woo$1["default"] {
         const subscription = this.safeDict(subscriptionsById, id, {});
         const method = this.safeValue(subscription, 'method');
         if (method !== undefined) {
-            method.call(this, client, message, subscription);
+            this.handleOrderBookSubscription(client, message, subscription);
         }
         return message;
     }

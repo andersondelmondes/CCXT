@@ -96,9 +96,9 @@ export default class luno extends lunoRest {
         if (length === 0) {
             return;
         }
-        const symbol = subscription['symbol'];
+        const symbol = this.safeString(subscription, 'symbol', '');
         const market = this.market(symbol);
-        const symbolValue = market['symbol'];
+        const symbolValue = this.safeString(market, 'symbol', '');
         const messageHash = 'trades:' + symbolValue;
         let stored = this.safeValue(this.trades, symbolValue);
         if (stored === undefined) {
@@ -449,10 +449,8 @@ export default class luno extends lunoRest {
             // frames still arriving until the client resubscribes
             return;
         }
-        const handlers = [this.handleOrderBook, this.handleTrades];
-        for (let j = 0; j < handlers.length; j++) {
-            const handler = handlers[j];
-            handler.call(this, client, message, subscriptions[0]);
-        }
+        const subscription = this.safeDict(subscriptions, 0, {});
+        this.handleOrderBook(client, message, subscription);
+        this.handleTrades(client, message, subscription);
     }
 }

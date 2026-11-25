@@ -327,7 +327,7 @@ export default class predictfun extends Exchange {
         if (!allowUnscopedFetchEvents) {
             this.requireEventQuery (params);
         }
-        const queries = this.parseSearchQueries (params);
+        const queries: string[] = this.parseSearchQueries (params);
         const queriesLength = queries.length;
         const paramsValue: fetchEventsParams = this.omit (params, [ 'query', 'queries' ]);
         // keys dropped before the client-side pass; the categories listing also drops its limit
@@ -342,10 +342,10 @@ export default class predictfun extends Exchange {
         if (this.markets === undefined) {
             this.markets = this.createSafeDictionary ();
         }
-        let rawTopics: any[] = [];
+        let rawTopics: Dict[] = [];
         if (slug !== undefined) {
             const response = await this.predictfunGetV1CategoriesSlug (this.extend ({ 'slug': slug }, rest));
-            const data = this.safeDict (response, 'data');
+            const data: any = this.safeDict (response, 'data');
             rawTopics = [ data ];
         } else if (queriesLength > 0) {
             // a query/queries scope is answered by the dedicated search endpoint — the categories
@@ -355,8 +355,14 @@ export default class predictfun extends Exchange {
         } else {
             const request: Dict = {};
             const tags = this.safeList (paramsValue, 'tags', []);
-            if (tags.length > 0) {
-                request['tagIds'] = tags.join (',');
+            const tagsLength = tags.length;
+            if (tagsLength > 0) {
+                const tagIds: string[] = [];
+                for (let i = 0; i < tagsLength; i++) {
+                    const tagId: string = this.safeString (tags, i, '');
+                    tagIds.push (tagId);
+                }
+                request['tagIds'] = tagIds.join (',');
             }
             postOmitKeys.push ('limit');
             const paramsCategories: Dict = this.omit (paramsValue, [ 'limit', 'tags' ]);
@@ -548,7 +554,7 @@ export default class predictfun extends Exchange {
         const rawTopicsLength = rawTopics.length;
         const result: any[] = [];
         for (let i = 0; i < rawTopicsLength; i++) {
-            const parsedEvent = this.parseEvent (rawTopics[i]);
+            const parsedEvent = this.parseEvent (this.extend ({}, rawTopics[i]));
             result.push (parsedEvent);
             const parsedMarkets: Dict[] = this.safeList (parsedEvent, 'markets', []);
             const parsedMarketsLength = parsedMarkets.length;
@@ -666,7 +672,7 @@ export default class predictfun extends Exchange {
             //     }
             //
             const data: Dict = this.safeDict (response, 'data', {});
-            const categories = this.safeList (data, 'categories', []) as any[];
+            const categories: Dict[] = this.safeList (data, 'categories', []);
             const categoriesLength = categories.length;
             for (let ci = 0; ci < categoriesLength; ci++) {
                 const category = this.safeDict (categories, ci);
@@ -978,22 +984,32 @@ export default class predictfun extends Exchange {
         const digits = '0123456789';
         const chars = this.stringToCharsArray (text);
         let stripped = '';
+        let prevCh = '';
+        // a comma after a digit waits for the next char: it is dropped only when that one is a digit too
+        let pendingComma = false;
         for (let i = 0; i < chars.length; i++) {
             const ch = chars[i];
-            let keep = true;
-            if (ch === '$') {
-                keep = false;
-            } else if (ch === ',') {
+            const isDigit = (digits.indexOf (ch) >= 0);
+            if (pendingComma && !isDigit) {
+                stripped = stripped + ',';
+            }
+            pendingComma = false;
+            if (ch === ',') {
                 // only a comma between two digits is a thousands separator: "1,500" has to close
                 // up to "1500" to match the venue's comma-free slug. a comma anywhere else is
                 // ordinary punctuation and stays, so it still separates words
-                const prevIsDigit = (i > 0) && (digits.indexOf (chars[i - 1]) >= 0);
-                const nextIsDigit = ((i + 1) < chars.length) && (digits.indexOf (chars[i + 1]) >= 0);
-                keep = !(prevIsDigit && nextIsDigit);
-            }
-            if (keep) {
+                if ((i > 0) && (digits.indexOf (prevCh) >= 0)) {
+                    pendingComma = true;
+                } else {
+                    stripped = stripped + ch;
+                }
+            } else if (ch !== '$') {
                 stripped = stripped + ch;
             }
+            prevCh = ch;
+        }
+        if (pendingComma) {
+            stripped = stripped + ',';
         }
         return stripped;
     }
@@ -1671,9 +1687,13 @@ export default class predictfun extends Exchange {
         if (rawFee !== undefined) {
             const feeType = this.safeString (rawFee, 'type');
             const feeCost = this.safeString (rawFee, 'amount');
+            // a SHARES fee is charged in outcome tokens rather than in collateral
+            let feeCurrency: Str = undefined;
+            if (feeType === 'COLLATERAL') {
+                feeCurrency = 'USDT';
+            }
             fee = {
-                // a SHARES fee is charged in outcome tokens rather than in collateral
-                'currency': (feeType === 'COLLATERAL') ? 'USDT' : undefined,
+                'currency': feeCurrency,
                 'cost': this.parseNumber (Precise.stringDiv (feeCost, '1000000000000000000')),
             };
         }
@@ -1762,8 +1782,8 @@ export default class predictfun extends Exchange {
     signHash (hash: string, privateKey: string): string {
         const signature = ecdsa (hash.slice (-64), privateKey.slice (-64), secp256k1, undefined);
         // assign before padStart so the php str_pad regex matches, it only handles a bare identifier
-        const rRaw = signature['r'];
-        const sRaw = signature['s'];
+        const rRaw = this.safeString (signature, 'r', '');
+        const sRaw = this.safeString (signature, 's', '');
         const r = rRaw.padStart (64, '0');
         const s = sRaw.padStart (64, '0');
         // ecrecover wants v in {27,28} while the raw recovery id is {0,1}
@@ -2649,7 +2669,7 @@ export default class predictfun extends Exchange {
      * @param {object} requestBody the request body
      * @returns {undefined} nothing, it throws when the venue reported a failure
      */
-    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str) {
+    override handleErrors (code: int, reason: string, url: string, method: string, headers: Dict, body: string, response: any, requestHeaders: NullableDict, requestBody: Str): Bool {
         if (response === undefined) {
             return undefined;
         }
@@ -3032,8 +3052,10 @@ export default class predictfun extends Exchange {
         if ((subscribeHash !== undefined) && (subscribeHash in client.subscriptions)) {
             delete client.subscriptions[subscribeHash];
         }
-        let messageHashes: string[] = this.safeList (subscription, 'messageHashes', []);
-        if (this.safeString (subscription, 'topic') === 'walletEvents') {
+        let messageHashes: string[] = [];
+        if (this.safeString (subscription, 'topic') !== 'walletEvents') {
+            messageHashes = this.safeList (subscription, 'messageHashes', []);
+        } else {
             // watch () registers the wallet subscription once, for whichever watcher came first, so
             // its list is a snapshot of that moment - a narrowed watcher that joined later is known
             // only to the client. read the live waiters now, or those later callers would never be
@@ -3365,8 +3387,8 @@ export default class predictfun extends Exchange {
      * @param {string} [marketId] the venue market id
      * @returns {object[]} the outcome objects
      */
-    outcomesByMarketId (marketId: Str): any[] {
-        const result: any[] = [];
+    outcomesByMarketId (marketId: Str): Dict[] {
+        const result: Dict[] = [];
         if ((marketId === undefined) || (this.outcomes === undefined)) {
             return result;
         }
@@ -3771,9 +3793,13 @@ export default class predictfun extends Exchange {
         let fee: Fee = undefined;
         if (rawFee !== undefined) {
             const feeType = this.safeString (rawFee, 'type');
+            // a SHARES fee is charged in outcome tokens rather than in collateral
+            let feeCurrency: Str = undefined;
+            if (feeType === 'COLLATERAL') {
+                feeCurrency = 'USDT';
+            }
             fee = {
-                // a SHARES fee is charged in outcome tokens rather than in collateral
-                'currency': (feeType === 'COLLATERAL') ? 'USDT' : undefined,
+                'currency': feeCurrency,
                 'cost': this.parseNumber (Precise.stringDiv (this.safeString (rawFee, 'amountWei'), '1000000000000000000')),
             };
         }

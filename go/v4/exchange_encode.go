@@ -187,11 +187,6 @@ func (e *BaseExchange) BinaryConcat(parts ...any) []byte {
 	return result
 }
 
-func (e *BaseExchange) numberToBE(n, padding any) string {
-	// return n.(string) // stub
-	return ""
-}
-
 func BinaryToHex(buff []byte) string {
 	return strings.ToLower(hex.EncodeToString(buff))
 }
@@ -356,6 +351,10 @@ func (e *BaseExchange) UrlencodeWithArrayRepeat(parameters2 any) string {
 	var outList []string
 	for key, value := range parameters {
 		if values, ok := value.([]any); ok {
+			for _, item := range values {
+				outList = append(outList, fmt.Sprintf("%s=%s", rfc3986Escape(key), encodeValue(item)))
+			}
+		} else if values, ok := value.([]string); ok {
 			for _, item := range values {
 				outList = append(outList, fmt.Sprintf("%s=%s", rfc3986Escape(key), encodeValue(item)))
 			}

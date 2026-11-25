@@ -902,7 +902,10 @@ class bitopro extends Exchange {
         );
         // we need to have a limit argument because "to" and "from" are required
         // supports slightly more than 75k candles atm, but limit here to avoid errors
-        $limitResolved = $this->parse_to_int(($limit === null) ? 500 : min($limit, 75000));
+        $limitResolved = 500;
+        if ($limit !== null) {
+            $limitResolved = $this->parse_to_int(min($limit, 75000));
+        }
         $timeframeInSeconds = $this->parse_timeframe($timeframe);
         $alignedSince = null;
         if ($since === null) {
@@ -959,7 +962,7 @@ class bitopro extends Exchange {
             $candle = $this->safe_list($candles, $i, array());
             if ($candle[0] === $timestamp) {
                 $result[] = $candle;
-                $i = $this->sum($i, 1);
+                $i = $i + 1;
             } else {
                 // set open, high, low to close
                 $closeValue = $this->safe_value($copyFrom, 4);
@@ -1043,7 +1046,10 @@ class bitopro extends Exchange {
             '4' => 'canceled',
             '6' => 'canceled',
         );
-        return ($status === null) ? null : $this->safe_string($statuses, $status);
+        if ($status === null) {
+            return null;
+        }
+        return $this->safe_string($statuses, $status);
     }
 
     public function parse_order(array $order, ?array $market = null): array {
@@ -1954,7 +1960,7 @@ class bitopro extends Exchange {
         return array( 'url' => $fullUrl, 'method' => $method, 'body' => $requestBody, 'headers' => $requestHeaders );
     }
 
-    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody) {
+    public function handle_errors(int $code, string $reason, string $url, string $method, array $headers, string $body, mixed $response, ?array $requestHeaders, ?string $requestBody): ?bool {
         if ($response === null) {
             return null; // fallback to the default error handler
         }
